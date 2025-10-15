@@ -39,6 +39,7 @@ def estimate_poses_from_manifest(
     estimator: Optional[PoseEstimator] = None,
     save_json: bool = True,
     output_path: Path | None = None,
+    estimator_kwargs: Optional[dict] = None,
 ) -> list[PoseFrame]:
     manifest = load_manifest(manifest_path)
     frame_dir = Path(manifest_path).parent
@@ -46,7 +47,7 @@ def estimate_poses_from_manifest(
     timestamps = [entry.timestamp_seconds for entry in manifest.frame_entries]
 
     close_after = estimator is None
-    estimator = estimator or PoseEstimator()
+    estimator = estimator or PoseEstimator(**(estimator_kwargs or {}))
     try:
         frames = estimator.process_paths(image_paths, timestamps=timestamps)
     finally:
@@ -70,17 +71,19 @@ def estimate_poses_for_directory(
     *,
     estimator: Optional[PoseEstimator] = None,
     save_json: bool = True,
+    estimator_kwargs: Optional[dict] = None,
 ) -> dict[str, list[PoseFrame]]:
     root = Path(frames_root)
     results: dict[str, list[PoseFrame]] = {}
     close_after = estimator is None
-    estimator = estimator or PoseEstimator()
+    estimator = estimator or PoseEstimator(**(estimator_kwargs or {}))
     try:
         for manifest_path in sorted(root.rglob("manifest.json")):
             frames = estimate_poses_from_manifest(
                 manifest_path,
                 estimator=estimator,
                 save_json=save_json,
+                estimator_kwargs=None,
             )
             results[str(manifest_path)] = frames
     finally:

@@ -72,7 +72,12 @@ def test_pose_estimator_applies_smoothing(monkeypatch, tmp_path: Path) -> None:
     assert engine.closed is True
 
 
-def test_pose_estimator_requires_mediapipe():
+def test_pose_estimator_requires_mediapipe(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise ModuleNotFoundError("mediapipe missing")
+
+    monkeypatch.setattr(PoseEstimator, "_create_mediapipe_engine", _raise, raising=False)
     estimator = PoseEstimator()
+    estimator._engine_factory = None
     with pytest.raises(ModuleNotFoundError):
         estimator.load()
