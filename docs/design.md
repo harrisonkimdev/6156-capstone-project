@@ -35,9 +35,9 @@ pose_ai/
   segmentation/model.py
   pose/estimator.py
   pose/filters.py
-  features/aggregator.py
-  features/metrics.py
-  features/patterns.py
+  features/__init__.py
+  features/aggregation.py
+  features/config.py
   recommendation/planner.py
   recommendation/reasoner.py
   persistence/repositories.py
@@ -59,6 +59,7 @@ scripts/
   extract_frames.py
   run_segmentation.py
   run_pose_estimation.py
+  run_feature_export.py
 ```
 
 ### Module Responsibilities
@@ -66,7 +67,7 @@ scripts/
 - **data** – file acquisition, ffmpeg wrappers, frame skipping strategies, plus manifest utilities that convert saved frame metadata into segmentation-ready metrics.
 - **segmentation** – successive implementations (rule-based MVP, shot-detect hybrid, trainable temporal models). Current rule-based module (`segment_by_activity`) classifies rest vs movement from per-frame motion/hold-change scores.
 - **pose** – wrap estimators (MediaPipe, Alternate models), apply landmark smoothing, manage retries. Current scaffold (`PoseEstimator`) returns placeholder `PoseFrame` objects until MediaPipe integration lands.
-- **features** – derive segment metrics, hold relationships, difficulty scores.
+- **features** – derive frame/segment metrics (angles, center of mass, hold proximity) and export summarised data.
 - **recommendation** – orchestrate expert rules and ML models to produce actionable advice.
 - **persistence** – database/file storage abstraction (Postgres + S3/GCS recommended).
 - **service** – application use cases (e.g., `AnalyzeVideoService`) and orchestration helpers; segmentation bridge plus pose service that converts manifests into pose results with optional MediaPipe inference.
@@ -143,7 +144,7 @@ scripts/
 
 ## 13. Testing & QA
 - Unit tests per module (fast, deterministic).
-- Initial coverage includes `tests/unit/test_frame_sampler.py` for frame extraction manifests, `tests/unit/test_route_detection.py` for HSV-based hold clustering, `tests/unit/test_manifest_metrics.py` for manifest-to-metric conversion, `tests/unit/test_pose_estimator.py` for the estimation scaffold, `tests/unit/test_pose_filters.py` for smoothing behaviour, `tests/unit/test_pose_service.py` for manifest pose pipelines, `tests/unit/test_rule_based_segmentation.py` for the activity segmentation heuristics, and `tests/unit/test_segmentation_service.py` for manifest-driven orchestration.
+- Initial coverage includes `tests/unit/test_frame_sampler.py` for frame extraction manifests, `tests/unit/test_route_detection.py` for HSV-based hold clustering, `tests/unit/test_manifest_metrics.py` for manifest-to-metric conversion, `tests/unit/test_pose_estimator.py` for the estimation scaffold, `tests/unit/test_pose_filters.py` for smoothing behaviour, `tests/unit/test_pose_service.py` for manifest pose pipelines, `tests/unit/test_features_aggregation.py` for frame-level metrics, `tests/unit/test_feature_service.py` for feature exports, `tests/unit/test_rule_based_segmentation.py` for the activity segmentation heuristics, and `tests/unit/test_segmentation_service.py` for manifest-driven orchestration.
 - Integration tests for pipeline stages (use 10–15s sample video).
 - E2E tests hitting FastAPI endpoints with async client.
 - Regression suite: synthetic pose data, stored snapshots to detect drift.
