@@ -60,6 +60,7 @@ scripts/
   run_segmentation.py
   run_pose_estimation.py
   run_feature_export.py
+  run_segment_report.py
 ```
 
 ### Module Responsibilities
@@ -70,7 +71,7 @@ scripts/
 - **features** – derive frame/segment metrics (angles, center of mass, hold proximity) and export summarised data.
 - **recommendation** – orchestrate expert rules and ML models to produce actionable advice.
 - **persistence** – database/file storage abstraction (Postgres + S3/GCS recommended).
-- **service** – application use cases (e.g., `AnalyzeVideoService`) and orchestration helpers; segmentation bridge plus pose service that converts manifests into pose results with optional MediaPipe inference.
+- **service** – application use cases (e.g., `AnalyzeVideoService`) and orchestration helpers; segmentation bridge, pose services, feature exporters, and segment reporting for analytics.
 - **web** – FastAPI routers, request/response schemas, dependency injection.
 - **tests** – fixtures, mocks, sample videos, regression snapshots.
 
@@ -144,7 +145,7 @@ scripts/
 
 ## 13. Testing & QA
 - Unit tests per module (fast, deterministic).
-- Initial coverage includes `tests/unit/test_frame_sampler.py` for frame extraction manifests, `tests/unit/test_route_detection.py` for HSV-based hold clustering, `tests/unit/test_manifest_metrics.py` for manifest-to-metric conversion, `tests/unit/test_pose_estimator.py` for the estimation scaffold, `tests/unit/test_pose_filters.py` for smoothing behaviour, `tests/unit/test_pose_service.py` for manifest pose pipelines, `tests/unit/test_features_aggregation.py` for frame-level metrics, `tests/unit/test_feature_service.py` for feature exports, `tests/unit/test_rule_based_segmentation.py` for the activity segmentation heuristics, and `tests/unit/test_segmentation_service.py` for manifest-driven orchestration.
+- Initial coverage includes `tests/unit/test_frame_sampler.py` for frame extraction manifests, `tests/unit/test_route_detection.py` for HSV-based hold clustering, `tests/unit/test_manifest_metrics.py` for manifest-to-metric conversion, `tests/unit/test_pose_estimator.py` for the estimation scaffold, `tests/unit/test_pose_filters.py` for smoothing behaviour, `tests/unit/test_pose_service.py` for manifest pose pipelines, `tests/unit/test_features_aggregation.py` for frame-level metrics, `tests/unit/test_feature_service.py` for feature exports, `tests/unit/test_segment_metrics.py` for COM/joint analysis, `tests/unit/test_segment_report_service.py` for segment reports, `tests/unit/test_rule_based_segmentation.py` for the activity segmentation heuristics, and `tests/unit/test_segmentation_service.py` for manifest-driven orchestration.
 - Integration tests for pipeline stages (use 10–15s sample video).
 - E2E tests hitting FastAPI endpoints with async client.
 - Regression suite: synthetic pose data, stored snapshots to detect drift.
