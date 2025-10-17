@@ -213,3 +213,4 @@ __marimo__/
 data/
 !src/pose_ai/data/
 BetaMove/rawImages/
+models/
