@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>BetaMove Pipeline UI</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topnav">
+  <div class="inner">
+    <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png" alt="BetaMove logo"><span>BetaMove</span></a>
+    <nav>
+      <a href="/" class="active">Pipeline</a>
+      <a href="/training">Training</a>
+    </nav>
+  </div>
+  </header>
+<main class="container">
+    <section class="card">
+        <h1 class="title">BetaMove Pipeline</h1>
+        <p class="subtitle">Run the end-to-end pose analysis pipeline from your browser.</p>
+        <form id="pipeline-form" class="form">
+            <div class="form-row">
+                <label for="video_file">Upload video</label>
+                <input type="file" id="video_file" name="video" accept="video/*" required>
+                <p class="hint">The uploaded video will be used for this run.</p>
+            </div>
+            <div class="form-row">
+                <label for="output_dir">Output directory</label>
+                <input type="text" id="output_dir" name="output_dir" value="data/frames" required>
+            </div>
+            <div class="form-row inline">
+                <div>
+                    <label for="interval">Interval (seconds): <span id="interval_value">1.0</span>s</label>
+                    <input type="range" id="interval" name="interval" min="0.2" max="1.0" step="0.1" value="1.0">
+                </div>
+                <div class="checkbox">
+                    <input type="checkbox" id="skip_visuals" name="skip_visuals">
+                    <label for="skip_visuals">Skip visualization</label>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button id="run" type="submit">Run pipeline</button>
+                <button id="clear" type="button" class="secondary-btn">Clear</button>
+                <span id="form-status" class="status"></span>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Runs</h2>
+            <button id="refresh" type="button">Refresh</button>
+        </div>
+        <div class="table-wrapper">
+            <table id="jobs-table">
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Status</th>
+                    <th>Video dir</th>
+                    <th>Interval</th>
+                    <th>Created</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for job in jobs %}
+                    <tr data-job-id="{{ job.id }}">
+                        <td>{{ job.id }}</td>
+                        <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+                        <td>{{ job.video_dir }}</td>
+                        <td>{{ job.interval }}</td>
+                        <td>{{ job.created_at }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="hint">Select a run to inspect its logs.</p>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Logs</h2>
+            <span id="log-title">No run selected</span>
+        </div>
+        <pre id="log-output" class="log-output"></pre>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Visualizations</h2>
+        </div>
+        <div id="visual-grid" class="image-grid">
+            <p class="hint">No visualizations yet. Run the pipeline with visualization enabled.</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Pose Samples</h2>
+            <span id="pose-count" class="secondary"></span>
+        </div>
+        <div class="table-wrapper">
+            <table id="pose-table">
+                <thead>
+                <tr>
+                    <th>Image</th>
+                    <th>Timestamp (s)</th>
+                    <th>Detection Score</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <p id="pose-empty" class="hint">No pose sample data yet.</p>
+    </section>
+</main>
+
+<script>
+const form = document.getElementById("pipeline-form");
+const statusEl = document.getElementById("form-status");
+const jobsTableBody = document.querySelector("#jobs-table tbody");
+const logOutput = document.getElementById("log-output");
+const logTitle = document.getElementById("log-title");
+const refreshButton = document.getElementById("refresh");
+const fileInput = document.getElementById("video_file");
+const intervalInput = document.getElementById("interval");
+const intervalValue = document.getElementById("interval_value");
+const visualGrid = document.getElementById("visual-grid");
+const poseTableBody = document.querySelector("#pose-table tbody");
+const poseEmpty = document.getElementById("pose-empty");
+const poseCount = document.getElementById("pose-count");
+const clearButton = document.getElementById("clear");
+const runButton = document.getElementById("run");
+let selectedJobId = null;
+
+async function createJob(payload) {
+    const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Failed to start pipeline run");
+    }
+    return response.json();
+}
+
+function serializeForm(formData) {
+    return {
+        output_dir: formData.get("output_dir"),
+        interval: parseFloat(formData.get("interval") || "1.0"),
+        skip_visuals: formData.get("skip_visuals") === "on",
+    };
+}
+
+async function uploadSelectedVideo() {
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        throw new Error("Please select a video file.");
+    }
+    const uploadData = new FormData();
+    uploadData.append("video", fileInput.files[0]);
+    const response = await fetch("/api/upload", {
+        method: "POST",
+        body: uploadData,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Video upload failed");
+    }
+    return response.json();
+}
+
+async function fetchJobs() {
+    const response = await fetch("/api/jobs");
+    if (!response.ok) {
+        throw new Error("Failed to fetch jobs");
+    }
+    return response.json();
+}
+
+function renderVisualizations(items) {
+    if (!visualGrid) {
+        return;
+    }
+    if (!items || items.length === 0) {
+        visualGrid.innerHTML = '<p class="hint">No visualizations yet. Run the pipeline with visualization enabled.</p>';
+        return;
+    }
+    visualGrid.innerHTML = "";
+    items.forEach((item) => {
+        const figure = document.createElement("figure");
+        const link = document.createElement("a");
+        link.href = item.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+
+        const img = document.createElement("img");
+        img.src = item.url;
+        img.alt = item.label || "visualization";
+        link.appendChild(img);
+        figure.appendChild(link);
+
+        if (item.label) {
+            const caption = document.createElement("figcaption");
+            caption.textContent = item.label;
+            figure.appendChild(caption);
+        }
+        visualGrid.appendChild(figure);
+    });
+}
+
+function renderPoseSamples(samples) {
+    if (!poseTableBody) {
+        return;
+    }
+    poseTableBody.innerHTML = "";
+    if (!samples || samples.length === 0) {
+        if (poseEmpty) {
+            poseEmpty.style.display = "block";
+        }
+        if (poseCount) {
+            poseCount.textContent = "";
+        }
+        return;
+    }
+    if (poseEmpty) {
+        poseEmpty.style.display = "none";
+    }
+    if (poseCount) {
+        poseCount.textContent = `${samples.length} frames`;
+    }
+
+    samples.forEach((sample) => {
+        const row = document.createElement("tr");
+
+        const imageCell = document.createElement("td");
+        if (sample.image_url) {
+            const link = document.createElement("a");
+            link.href = sample.image_url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = sample.image_name || sample.image_path || "view";
+            imageCell.appendChild(link);
+        } else {
+            imageCell.textContent = sample.image_name || sample.image_path || "—";
+        }
+        row.appendChild(imageCell);
+
+        const timestampCell = document.createElement("td");
+        const timestamp = Number(sample.timestamp_seconds);
+        timestampCell.textContent = Number.isFinite(timestamp) ? timestamp.toFixed(2) : "—";
+        row.appendChild(timestampCell);
+
+        const scoreCell = document.createElement("td");
+        const score = Number(sample.detection_score);
+        scoreCell.textContent = Number.isFinite(score) ? score.toFixed(3) : "—";
+        row.appendChild(scoreCell);
+
+        poseTableBody.appendChild(row);
+    });
+}
+
+async function clearServerJob(jobId) {
+    const response = await fetch(`/api/jobs/${jobId}/clear`, { method: "POST" });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Failed to clear job");
+    }
+    return response.json();
+}
+
+function clearDisplays() {
+    logTitle.textContent = "No run selected";
+    document.getElementById("log-output").textContent = "";
+    renderVisualizations([]);
+    renderPoseSamples([]);
+}
+
+function renderJobs(jobs) {
+    jobsTableBody.innerHTML = "";
+    jobs.forEach(job => {
+        const row = document.createElement("tr");
+        row.dataset.jobId = job.id;
+        row.innerHTML = `
+            <td>${job.id}</td>
+            <td class="status-cell">${job.status}</td>
+            <td>${job.video_dir}</td>
+            <td>${job.interval.toFixed ? job.interval.toFixed(2) : job.interval}</td>
+            <td>${job.created_at}</td>
+        `;
+        if (job.id === selectedJobId) {
+            row.classList.add("selected");
+        }
+        row.addEventListener("click", () => {
+            selectedJobId = job.id;
+            loadLogs(job.id);
+            renderJobs(jobs);
+        });
+        jobsTableBody.appendChild(row);
+    });
+}
+
+async function refreshJobs() {
+    try {
+        const jobs = await fetchJobs();
+        renderJobs(jobs);
+        if (selectedJobId) {
+            await loadLogs(selectedJobId);
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function loadLogs(jobId) {
+    try {
+        const response = await fetch(`/api/jobs/${jobId}`);
+        if (!response.ok) {
+            throw new Error("Failed to fetch job logs");
+        }
+        const data = await response.json();
+        logTitle.textContent = `Run ${data.id} (${data.status})`;
+        logOutput.textContent = data.logs.join("\\n") || "No logs yet.";
+        renderVisualizations(data.visualizations || []);
+        renderPoseSamples(data.pose_samples || []);
+    } catch (err) {
+        logTitle.textContent = "Unable to load logs";
+        logOutput.textContent = String(err);
+        renderVisualizations([]);
+        renderPoseSamples([]);
+    }
+}
+
+form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    statusEl.textContent = "Starting…";
+    try {
+        const formData = new FormData(form);
+        const payload = serializeForm(formData);
+        statusEl.textContent = "Uploading video…";
+        const uploadResult = await uploadSelectedVideo();
+        payload.video_dir = uploadResult.video_dir;
+        const job = await createJob(payload);
+        statusEl.textContent = `Started run ${job.id}`;
+        if (fileInput) {
+            fileInput.value = "";
+        }
+        selectedJobId = job.id;
+        await refreshJobs();
+    } catch (err) {
+        statusEl.textContent = err.message;
+    }
+});
+
+refreshButton.addEventListener("click", refreshJobs);
+setInterval(refreshJobs, 5000);
+renderVisualizations([]);
+renderPoseSamples([]);
+refreshJobs();
+
+if (clearButton) {
+    clearButton.addEventListener("click", async () => {
+        try {
+            if (selectedJobId) {
+                await clearServerJob(selectedJobId);
+                await loadLogs(selectedJobId);
+            } else {
+                clearDisplays();
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    });
+}
+
+function updateIntervalLabel() {
+    if (intervalInput && intervalValue) {
+        const val = parseFloat(intervalInput.value || "1.0");
+        intervalValue.textContent = (Number.isFinite(val) ? val.toFixed(1) : "1.0");
+    }
+}
+if (intervalInput) {
+    intervalInput.addEventListener("input", updateIntervalLabel);
+    updateIntervalLabel();
+}
+</script>
+</body>
+</html>
