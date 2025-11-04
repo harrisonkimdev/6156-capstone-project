@@ -1,15 +1,9 @@
 # 6156-capstone-project
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](
-https://colab.research.google.com/github/harrisonkimdev/6156-capstone-project/blob/main/notebooks/analysis.ipynb)
 
 ## [Project Backlog](https://docs.google.com/spreadsheets/d/113DbJu6Vg53PxX8Kgu5pkwsuLrqYH-i9JJcEuDvWjus/edit?gid=1139408620#gid=1139408620)
 
 ## [Sprint Backlog](https://github.com/users/harrisonkimdev/projects/9/views/1?sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=221588758&sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=Assignees)
-
-## Sprint Planning Meeting
-
-## Scrum Meeting Evaluation
 
 ---
 
@@ -55,7 +49,7 @@ conda run -n 6156-capstone env PYTHONPATH=src pytest tests/unit
 ```bash
 conda run -n 6156-capstone env PYTHONPATH=src python scripts/train_xgboost.py data/frames/<video>/pose_features.json --label-column detection_score --label-threshold 0.6 --model-out models/xgb_pose.json
 ```
-Adjust `--label-column`/`--label-threshold` to match your ground-truth labels. Optional `--feature-out` writes predictions to CSV.
+Adjust `--label-column`/`--label-threshold` to match your ground-truth labels. Optional `--feature-out` writes predictions to CSV. You can tune training via `--early-stopping-rounds 30`, `--tree-method hist|gpu_hist`, and export feature importances with `--importance-out models/xgb_pose_importance.csv`.
 
 ### Pose Visualization
 Overlay landmarks and connections on frames using:
