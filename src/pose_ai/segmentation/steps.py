@@ -13,6 +13,7 @@ class StepSegment:
     end_index: int
     start_time: float
     end_time: float
+    label: str = "unknown"
 
     @property
     def duration(self) -> float:
@@ -29,6 +30,89 @@ def _contact_signature(row: MutableMapping[str, object]) -> tuple:
         values.append(row.get(f"{limb}_contact_type"))
         values.append(row.get(f"{limb}_contact_hold"))
     return tuple(values)
+
+
+def _get_avg_speed(feature_rows: Sequence[MutableMapping[str, object]], start: int, end: int) -> float:
+    """Compute average COM speed across a segment."""
+    speeds = []
+    for idx in range(start, end + 1):
+        row = feature_rows[idx]
+        speed = row.get("com_speed")
+        if speed is not None:
+            try:
+                speeds.append(float(speed))
+            except (ValueError, TypeError):
+                pass
+    return sum(speeds) / len(speeds) if speeds else 0.0
+
+
+def _classify_step_label(
+    feature_rows: Sequence[MutableMapping[str, object]],
+    start_idx: int,
+    end_idx: int,
+    prev_segment: StepSegment | None,
+) -> str:
+    """Classify step type based on contact changes and velocity patterns."""
+    if start_idx >= len(feature_rows) or end_idx >= len(feature_rows):
+        return "unknown"
+    
+    start_row = feature_rows[start_idx]
+    end_row = feature_rows[end_idx]
+    
+    # Count support at start and end
+    start_support = _support_count(start_row)
+    end_support = _support_count(end_row)
+    
+    # Check which limbs changed
+    hand_changed = False
+    foot_changed = False
+    
+    if prev_segment is not None and prev_segment.end_index < len(feature_rows):
+        prev_row = feature_rows[prev_segment.end_index]
+        for limb in ("left_hand", "right_hand"):
+            if (start_row.get(f"{limb}_contact_hold") != prev_row.get(f"{limb}_contact_hold") or
+                start_row.get(f"{limb}_contact_type") != prev_row.get(f"{limb}_contact_type")):
+                hand_changed = True
+        for limb in ("left_foot", "right_foot"):
+            if (start_row.get(f"{limb}_contact_hold") != prev_row.get(f"{limb}_contact_hold") or
+                start_row.get(f"{limb}_contact_type") != prev_row.get(f"{limb}_contact_type")):
+                foot_changed = True
+    
+    # Get average speed
+    avg_speed = _get_avg_speed(feature_rows, start_idx, end_idx)
+    
+    # Get max y position (higher y = higher on wall)
+    start_com_y = start_row.get("com_y")
+    end_com_y = end_row.get("com_y")
+    
+    # Classification rules
+    # Rest: very low velocity, stable contacts
+    if avg_speed < 0.01 and start_support >= 3:
+        return "rest"
+    
+    # Finish: at top (low com_y in normalized coords), sustained stability
+    if end_com_y is not None and isinstance(end_com_y, (int, float)):
+        if float(end_com_y) < 0.3 and avg_speed < 0.02 and end_support >= 3:
+            return "finish"
+    
+    # FootAdjust: only foot changed, hands stable
+    if foot_changed and not hand_changed:
+        return "foot_adjust"
+    
+    # Reach: support increased or high velocity with hand movement
+    if end_support > start_support or (avg_speed > 0.05 and hand_changed):
+        return "reach"
+    
+    # Stabilize: contacts maintained, velocity decreasing
+    if start_support == end_support and avg_speed < 0.03:
+        return "stabilize"
+    
+    # DynamicMove: multiple limbs changed or high velocity
+    if (hand_changed and foot_changed) or avg_speed > 0.08:
+        return "dynamic_move"
+    
+    # Default
+    return "movement"
 
 
 def segment_steps_by_contacts(
@@ -70,12 +154,15 @@ def segment_steps_by_contacts(
             if frame_count >= min_frames or not segments:
                 start_time = float(feature_rows[current_start].get("timestamp", current_start / fps))
                 end_time = float(row.get("timestamp", idx / fps))
+                prev_segment = segments[-1] if segments else None
+                label = _classify_step_label(feature_rows, current_start, idx, prev_segment)
                 segment = StepSegment(
                     step_id=step_id,
                     start_index=current_start,
                     end_index=idx,
                     start_time=start_time,
                     end_time=end_time,
+                    label=label,
                 )
                 if segment.duration <= max_duration:
                     segments.append(segment)
@@ -89,6 +176,8 @@ def segment_steps_by_contacts(
     if not segments or segments[-1].end_index != len(feature_rows) - 1:
         start_time = float(feature_rows[current_start].get("timestamp", current_start / fps))
         end_time = float(feature_rows[-1].get("timestamp", (len(feature_rows) - 1) / fps))
+        prev_segment = segments[-1] if segments else None
+        label = _classify_step_label(feature_rows, current_start, len(feature_rows) - 1, prev_segment)
         segments.append(
             StepSegment(
                 step_id=step_id,
@@ -96,6 +185,7 @@ def segment_steps_by_contacts(
                 end_index=len(feature_rows) - 1,
                 start_time=start_time,
                 end_time=end_time,
+                label=label,
             )
         )
 

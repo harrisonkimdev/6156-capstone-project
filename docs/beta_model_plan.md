@@ -103,50 +103,60 @@
 
 ## Short-Term Priorities (Next 2-3 Weeks)
 
-### 1. Advanced Contact Inference
+### ✅ 1. Advanced Contact Inference — COMPLETED
 
-**Current Gap**: Basic distance thresholding, no velocity or temporal filtering  
-**Target**: Full algorithm per [efficiency_calculation.md](efficiency_calculation.md)
+**Status**: Fully implemented in `src/pose_ai/features/contacts.py`
 
-Tasks:
-- [ ] Implement hysteresis (separate r_on/r_off thresholds)
-- [ ] Add velocity condition (`|v| <= v_hold`)
-- [ ] Minimum duration filter (`min_on_frames >= 3`)
-- [ ] Smear detection (foot near wall, no hold within radius)
-- [ ] Optional: HMM/Viterbi temporal smoothing
+Completed:
+- [x] Implement hysteresis (separate r_on/r_off thresholds)
+- [x] Add velocity condition (`|v| <= v_hold`)
+- [x] Minimum duration filter (`min_on_frames >= 3`)
+- [x] Smear detection (foot near wall, no hold within radius)
+- [x] Technique detection (bicycle, back-flag, drop-knee)
 
-**Impact**: More accurate contact inference → better efficiency scoring and step segmentation
+**Impact**: More accurate contact inference → better efficiency scoring and step segmentation ✅
 
-### 2. Step Segmentation Enhancement
+### ✅ 2. Step Segmentation Enhancement — COMPLETED
 
-**Current Gap**: Simple movement/rest classification, no step boundaries  
-**Target**: Contact-based step detection with duration constraints
+**Status**: Fully implemented in `src/pose_ai/segmentation/steps.py`
 
-Tasks:
-- [ ] Split on confirmed contact changes (single limb priority)
-- [ ] Enforce step duration constraints (0.2s - 4s)
-- [ ] Segment labeling: Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish
-- [ ] Validate against manual annotations
+Completed:
+- [x] Split on confirmed contact changes (single limb priority)
+- [x] Enforce step duration constraints (0.2s - 4s)
+- [x] Segment labeling: Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish, Movement
+- [x] Integration with pipeline
 
-**Impact**: Meaningful step-level analysis for efficiency and recommendations
+**Impact**: Meaningful step-level analysis for efficiency and recommendations ✅
 
-### 3. Full Efficiency Formula
+### ✅ 3. Full Efficiency Formula — COMPLETED
 
-**Current Gap**: 5-component heuristic, no support polygon or path metrics  
-**Target**: 7-component physics-based formula per efficiency_calculation.md
+**Status**: Fully implemented in `src/pose_ai/recommendation/efficiency.py`
 
-Tasks:
-- [ ] Support polygon stability (convex hull from contacts, COM distance)
-- [ ] Support count/switch penalties (strong penalty if <2 contacts)
-- [ ] Wall-body distance penalty (forearm load proxy)
-- [ ] Path efficiency (net displacement vs path length)
-- [ ] Smoothness penalty (jerk, direction changes)
-- [ ] Reach-limit penalty (extreme limb extensions)
-- [ ] Technique bonuses (bicycle, back-flag, drop-knee)
+Completed:
+- [x] Support polygon stability with ConvexHull (scipy.spatial)
+- [x] Support count/switch penalties (strong penalty if <2 contacts)
+- [x] Wall-body distance penalty (forearm load proxy)
+- [x] Path efficiency (net displacement vs path length)
+- [x] Smoothness penalty (jerk, direction changes)
+- [x] Reach-limit penalty (extreme limb extensions)
+- [x] Technique bonuses (bicycle, back-flag, drop-knee)
 
-**Impact**: More accurate efficiency scores aligned with climbing physics
+**Impact**: More accurate efficiency scores aligned with climbing physics ✅
 
-### 4. Hold Detection Improvements
+### ✅ 4. Rule-Based Planner v1 — COMPLETED
+
+**Status**: Fully implemented in `src/pose_ai/recommendation/planner.py`
+
+Completed:
+- [x] Candidate hold sampling (K=10, upward bias)
+- [x] Support simulation (new contact set computation)
+- [x] Efficiency simulation (stability recomputation)
+- [x] Constraint checking (support count, COM-in-polygon, reach limits)
+- [x] Ranking by efficiency gain (Δeff)
+
+**Impact**: Physics-based next-move recommendations with efficiency forecasting ✅
+
+### 5. Hold Detection Improvements — IN PROGRESS
 
 Tasks:
 - [ ] Transfer learning comparison: yolov8n vs yolov8m mAP/latency

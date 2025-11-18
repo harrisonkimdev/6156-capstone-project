@@ -6,8 +6,16 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, MutableMapping, Optional, Sequence, Tuple
 
 import math
+import numpy as np
 
 from pose_ai.segmentation.steps import StepSegment
+
+try:
+    from scipy.spatial import ConvexHull
+    HAS_SCIPY = True
+except ImportError:  # pragma: no cover
+    HAS_SCIPY = False
+    ConvexHull = None  # type: ignore
 
 
 Point = Tuple[float, float]
@@ -66,6 +74,22 @@ def _collect_support_points(row: MutableMapping[str, object]) -> List[Point]:
             if lx is not None and ly is not None:
                 points.append((lx, ly))
     return points
+
+
+def _compute_convex_hull(points: List[Point]) -> List[Point]:
+    """Compute convex hull of support points if possible."""
+    if len(points) < 3:
+        return points
+    if not HAS_SCIPY:
+        return points
+    
+    try:
+        points_array = np.array(points, dtype=float)
+        hull = ConvexHull(points_array)
+        hull_points = [tuple(points_array[i]) for i in hull.vertices]
+        return hull_points
+    except Exception:  # pragma: no cover - fallback on any error
+        return points
 
 
 def _point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
@@ -148,6 +172,7 @@ class StepEfficiencyComputer:
         wall_penalties: List[float] = []
         jerk_penalties: List[float] = []
         reach_penalties: List[float] = []
+        technique_scores: List[float] = []
 
         prev_row: MutableMapping[str, object] | None = None
         switch_events: List[int] = []
@@ -156,8 +181,9 @@ class StepEfficiencyComputer:
             body_scale = _safe_float(row.get("body_scale")) or 1.0
             com_point = (_safe_float(row.get("com_x")), _safe_float(row.get("com_y")))
             support_points = _collect_support_points(row)
-            if None not in com_point and support_points:
-                distance = _distance_to_polygon(com_point, support_points)
+            support_polygon = _compute_convex_hull(support_points)
+            if None not in com_point and support_polygon:
+                distance = _distance_to_polygon(com_point, support_polygon)
                 stability = math.exp(-self.stability_alpha * (distance / ((body_scale or 1.0) + 1e-6)))
             else:
                 stability = 0.0
@@ -198,6 +224,14 @@ class StepEfficiencyComputer:
                         dist /= body_scale
                     reach_norm = max(reach_norm, dist)
             reach_penalties.append(max(0.0, reach_norm - self.reach_threshold))
+            
+            # Technique bonuses
+            bicycle = _safe_float(row.get("technique_bicycle")) or 0.0
+            back_flag = _safe_float(row.get("technique_back_flag")) or 0.0
+            drop_knee = _safe_float(row.get("technique_drop_knee")) or 0.0
+            technique_bonus = 0.05 * bicycle + 0.05 * back_flag + 0.03 * drop_knee
+            technique_scores.append(technique_bonus)
+            
             prev_row = row
 
         com_points = [
@@ -230,6 +264,7 @@ class StepEfficiencyComputer:
             "wall_penalty": _mean(wall_penalties),
             "jerk_penalty": _mean(jerk_penalties),
             "reach_penalty": _mean(reach_penalties),
+            "technique_bonus": _mean(technique_scores),
         }
 
         score = (
@@ -241,6 +276,7 @@ class StepEfficiencyComputer:
                 + weights.smoothness * components["jerk_penalty"]
                 + weights.reach * components["reach_penalty"]
             )
+            + components["technique_bonus"]
         )
 
         return StepEfficiencyResult(
@@ -297,10 +333,41 @@ def suggest_next_actions(
     return [hold for _, hold in ranked[:top_k]]
 
 
+def suggest_next_actions_advanced(
+    current_row: MutableMapping[str, object],
+    holds: Sequence[Dict[str, object]],
+    *,
+    top_k: int = 3,
+) -> List[Dict[str, object]]:
+    """Advanced next-action suggestions with efficiency simulation (uses planner.py)."""
+    try:
+        from pose_ai.recommendation.planner import NextMovePlanner
+        
+        planner = NextMovePlanner()
+        candidates = planner.plan_next_move(current_row, holds, top_k=top_k)
+        
+        results: List[Dict[str, object]] = []
+        for candidate in candidates:
+            results.append({
+                "limb": candidate.limb,
+                "hold_id": candidate.hold_id,
+                "position": list(candidate.hold_position),
+                "efficiency": candidate.simulated_efficiency,
+                "efficiency_delta": candidate.efficiency_delta,
+                "reasoning": candidate.reasoning,
+                "constraint_violations": candidate.constraint_violations,
+            })
+        return results
+    except ImportError:  # pragma: no cover
+        # Fall back to basic version if planner not available
+        return suggest_next_actions(current_row, holds, top_k=top_k)
+
+
 __all__ = [
     "EfficiencyWeights",
     "StepEfficiencyComputer",
     "StepEfficiencyResult",
     "score_steps",
     "suggest_next_actions",
+    "suggest_next_actions_advanced",
 ]

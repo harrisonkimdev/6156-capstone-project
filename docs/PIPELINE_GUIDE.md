@@ -377,28 +377,32 @@ def infer_contact(joint_pos, holds, threshold=0.25):
 
 **Module**: [`src/pose_ai/recommendation/efficiency.py`](../src/pose_ai/recommendation/efficiency.py)
 
-### Current Implementation (Rule-Based MVP)
+### Current Implementation (Physics-Based with Technique Bonuses)
 
-5-component weighted score normalized to 0-1 range:
+7-component weighted score with technique bonuses:
 
 ```python
 def compute_efficiency_score(pose_frames, holds, wall_angle):
     """
     Components:
-    1. detection_quality (0.20): Mean landmark visibility
-    2. joint_smoothness (0.25): Inverse of joint angle variance
-    3. com_stability (0.25): Inverse of COM movement variance
-    4. contact_count (0.15): Number of holds in contact
-    5. hip_wall_alignment (0.15): Hip alignment with wall normal
+    1. stability (0.35): Support polygon stability (COM distance to convex hull)
+    2. path_efficiency (0.25): Net displacement vs actual path length
+    3. support_penalty (0.20): Penalty if support count < 2 + contact switching
+    4. wall_penalty (0.10): COM distance from wall (forearm load proxy)
+    5. jerk_penalty (0.07): Smoothness based on jerk (third derivative)
+    6. reach_penalty (0.03): Penalty for extreme limb extensions
+    7. technique_bonus: Bicycle (0.05) + Back-flag (0.05) + Drop-knee (0.03)
     """
     score = (
-        0.20 * detection_quality +
-        0.25 * joint_smoothness +
-        0.25 * com_stability +
-        0.15 * normalize_contact_count(contact_count) +
-        0.15 * hip_wall_alignment
+        0.35 * stability +
+        0.25 * path_efficiency
+        - (0.20 * support_penalty +
+           0.10 * wall_penalty +
+           0.07 * jerk_penalty +
+           0.03 * reach_penalty)
+        + technique_bonus
     )
-    return clamp(score, 0.0, 1.0)
+    return score  # Range approximately 0.0-1.0
 ```
 
 **Interpretation**:
@@ -408,45 +412,35 @@ def compute_efficiency_score(pose_frames, holds, wall_angle):
 - **0.2-0.4**: Poor efficiency, unstable or jerky movement
 - **0.0-0.2**: Very poor efficiency, loss of control or missing data
 
-### Planned Enhancement (per efficiency_calculation.md)
+### Implementation Details
 
-7-component physics-based scoring:
+**Support Polygon Stability**:
+- Uses `scipy.spatial.ConvexHull` when available (3+ contact points)
+- Falls back to simple polygon if scipy not available or < 3 points
+- Stability score: `exp(-α * distance_to_polygon / body_scale)`
+- Default α = 4.0
 
-1. **Support Polygon Stability** (w1=0.35):
-   - Build convex hull from contact points
-   - Compute COM distance to polygon
-   - `stab = exp(-α * dist_normalized)`
+**Technique Detection** (per efficiency_calculation.md):
+- **Bicycle**: Both feet on same/near hold, opposing toe vectors
+- **Back-flag**: Free leg extended behind body, hip rotation counter
+- **Drop-knee**: Knee internal rotation with pelvic twist
+- Confidence scores (0-1) computed per frame, averaged across step
 
-2. **Support Count Penalty** (w2=0.20):
-   - Strong penalty if fewer than 2 points of contact
-   - Penalty for frequent contact switching
+**Path Efficiency**:
+- Accumulates COM path length frame-by-frame
+- Compares to net displacement: `net_disp / (path_len + ε)`
+- Rewards direct, economical movement
 
-3. **Wall-Body Distance Penalty** (w3=0.10):
-   - Forearm load increases with COM distance from wall
-   - `pen_wall = w3 * ReLU(z_COM - z_ref)`
+**Jerk Penalty**:
+- Third derivative of position (computed via `kinematics.py`)
+- Penalizes jerky, uncontrolled movements
+- Normalized by body scale
 
-4. **Path Efficiency** (w4=0.25):
-   - Net displacement vs actual path length
-   - `eff_path = net_disp / (path_len + ε)`
-
-5. **Smoothness Penalty** (w5=0.07):
-   - Normalized jerk for COM and key limbs
-   - Direction change penalties
-
-6. **Reach-Limit Penalty** (w6=0.03):
-   - Penalize extreme limb extensions
-   - `pen_reach = w6 * max(0, reach_norm - τ_reach)`
-
-7. **Technique Bonuses**:
-   - Bicycle, back-flag, drop-knee detection
-   - Add confidence-weighted bonuses
-
-**Formula**:
-```
-score_eff = w1*stab + w4*eff_path 
-            - (pen_support + pen_wall + pen_jerk + pen_reach)
-            + technique_bonus
-```
+**Contact Inference Integration**:
+- Uses advanced contact filter with hysteresis (r_on/r_off)
+- Velocity condition enforced (low speed required for contact)
+- Minimum duration filter (≥3 frames)
+- Smear detection for feet near wall
 
 ---
 
@@ -454,26 +448,32 @@ score_eff = w1*stab + w4*eff_path
 
 **Module**: [`src/pose_ai/recommendation/efficiency.py`](../src/pose_ai/recommendation/efficiency.py)
 
-### Current Implementation (Distance-Based Heuristic)
+### Current Implementation
+
+**Basic Version** (`suggest_next_actions`):
+- Distance-based heuristic with COM proximity
+- Recency penalty (avoid just-released holds)
+- Directional bias (upward preferred)
+- Fast, simple, no simulation
+
+**Advanced Version** (`suggest_next_actions_advanced`):
+- Rule-based planner with efficiency simulation
+- Candidate hold sampling (K=10, upward bias)
+- Support simulation (computes new contact set)
+- Efficiency simulation (recomputes stability with new support polygon)
+- Constraint checking:
+  - Support count ≥ 2
+  - COM inside/near polygon (tolerance)
+  - Reach limit check
+  - No limb crossing
+- Ranking by simulated efficiency gain (Δeff)
 
 ```python
-def suggest_next_holds(current_pose, holds, recently_used_holds, top_k=3):
-    """
-    Recommend next holds based on:
-    1. Distance from current COM
-    2. Recency penalty (avoid just-released holds)
-    3. Directional bias (upward preferred)
-    """
-    candidates = []
-    for hold in holds:
-        dist = np.linalg.norm(hold.position - current_com)
-        recency_penalty = 0.5 if hold.id in recently_used_holds else 0.0
-        vertical_bonus = 0.2 if hold.position[1] < current_com[1] else 0.0
-        
-        score = 1.0 / (dist + 1e-6) + vertical_bonus - recency_penalty
-        candidates.append((hold, score))
-    
-    return sorted(candidates, key=lambda x: x[1], reverse=True)[:top_k]
+from pose_ai.recommendation.planner import NextMovePlanner
+
+planner = NextMovePlanner()
+candidates = planner.plan_next_move(current_row, holds, top_k=3)
+# Returns MoveCandidate objects with efficiency estimates
 ```
 
 **Output Example**:
@@ -491,25 +491,17 @@ def suggest_next_holds(current_pose, holds, recently_used_holds, top_k=3):
 }
 ```
 
-### Planned Enhancement (per efficiency_calculation.md)
+### Future Enhancement (Model-Based v2)
 
-**Rule-Based v1**:
-1. Sample K candidate holds based on current support and target direction
-2. For each candidate, simulate new support set → recompute support polygon
-3. Estimate new efficiency score `score_eff'`
-4. Prefer moves that:
-   - Maintain/increase support count
-   - Keep COM inside polygon
-   - Respect reach and crossing constraints
-5. Return best `score_eff'` candidate with limb/direction/hold
-
-**Model-Based v2** (BiLSTM/Transformer):
+**BiLSTM/Transformer**:
 - Input: Sliding window (T=32 frames @ 25fps ≈ 1.28s)
 - Features: Normalized keypoints, v/a, COM, contact embeddings, efficiency metrics
 - Architecture: BiLSTM (128-256) + attention pooling
 - Head 1: Efficiency regression (Huber loss)
 - Head 2: Next-action classification (limb × direction or hold cluster, CrossEntropy)
 - Training: Weak labels from heuristic + fine-tune on human annotations
+
+See [IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md) for detailed roadmap.
 
 ---
 
@@ -826,39 +818,38 @@ All cells are ready to execute in order. Markdown cells provide explanations; co
 
 ### Current Limitations
 
-1. **Contact Inference**: Basic distance thresholding only
-   - No velocity filtering
-   - No hysteresis or minimum duration
-   - No smear detection
-   - **Planned**: Full algorithm per efficiency_calculation.md
+1. **✅ Contact Inference**: FULLY IMPLEMENTED
+   - Hysteresis (r_on/r_off) ✅
+   - Velocity filtering ✅
+   - Minimum duration (≥3 frames) ✅
+   - Smear detection ✅
 
-2. **Efficiency Scoring**: Rule-based heuristic
-   - 5 components vs planned 7
-   - Fixed weights (not learned)
-   - No support polygon analysis
-   - No technique pattern detection
-   - **Planned**: Physics-based scoring + technique bonuses
+2. **✅ Efficiency Scoring**: FULLY IMPLEMENTED
+   - 7-component physics-based formula ✅
+   - Support polygon with ConvexHull ✅
+   - Technique detection (bicycle, back-flag, drop-knee) ✅
+   - Technique bonuses integrated ✅
 
-3. **Step Segmentation**: Simple movement/rest classification
-   - No step boundary detection based on contact changes
-   - No duration constraints (0.2-4s)
-   - **Planned**: Confirmed contact-based segmentation
+3. **✅ Step Segmentation**: FULLY IMPLEMENTED
+   - Contact-based segmentation ✅
+   - Duration constraints (0.2-4s) ✅
+   - Step labels (Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish) ✅
 
-4. **Next-Action Recommendations**: Distance-only heuristic
-   - No efficiency simulation
-   - No support polygon constraints
-   - No reach/crossing checks
-   - **Planned**: Rule-based planner v1 → BiLSTM v2
+4. **✅ Next-Action Recommendations**: RULE-BASED PLANNER IMPLEMENTED
+   - Basic distance heuristic available
+   - Advanced planner with efficiency simulation ✅
+   - Support polygon constraints ✅
+   - Reach/crossing checks ✅
+   - **Future**: BiLSTM/Transformer model (v2)
 
-5. **Hold Detection**: Generic YOLOv8
-   - No transfer learning for climbing-specific holds
-   - No hold type classification (crimp, sloper, jug, etc.)
-   - **Planned**: Fine-tune on climbing hold dataset
+5. **Hold Detection**: Functional but not optimized
+   - Generic YOLOv8n/m (mAP ≥ 0.60/0.68)
+   - No hold type classification yet
+   - **Planned**: Transfer learning, type classification (crimp, sloper, jug, etc.)
 
-6. **Wall Calibration**: Single-angle estimation
-   - No multi-view calibration
-   - No RANSAC plane fitting for complex walls
-   - **Planned**: Advanced geometric calibration
+6. **Wall Calibration**: Basic single-angle estimation
+   - Hough + PCA (MAE ≤ 5-8°)
+   - **Planned**: RANSAC plane fitting, multi-view calibration
 
 ### Known Issues
 
