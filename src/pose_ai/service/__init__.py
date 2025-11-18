@@ -7,6 +7,7 @@ from .pose_service import (
 )
 from .segmentation_service import segment_video_from_manifest, segment_videos_under_directory
 from .segment_report import generate_segment_report
+from .yolo_service import annotate_manifest_with_yolo, UltralyticsYoloSelector
 
 __all__ = [
     "estimate_poses_for_directory",
@@ -15,4 +16,6 @@ __all__ = [
     "generate_segment_report",
     "segment_video_from_manifest",
     "segment_videos_under_directory",
+    "annotate_manifest_with_yolo",
+    "UltralyticsYoloSelector",
 ]
