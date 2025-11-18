@@ -30,6 +30,7 @@ class TrainJob:
     finished_at: Optional[datetime] = None
     metrics: Dict[str, object] = field(default_factory=dict)
     model_path: Optional[str] = None
+    model_uri: Optional[str] = None
     error: Optional[str] = None
     _log: List[str] = field(default_factory=list, repr=False)
     _lock: RLock = field(default_factory=RLock, repr=False, compare=False)
@@ -43,12 +44,13 @@ class TrainJob:
         with self._lock:
             self._log.append(message)
 
-    def complete(self, *, metrics: Dict[str, object], model_path: str) -> None:
+    def complete(self, *, metrics: Dict[str, object], model_path: str, model_uri: Optional[str] = None) -> None:
         with self._lock:
             self.status = TrainStatus.COMPLETED
             self.finished_at = _utcnow()
             self.metrics = metrics
             self.model_path = model_path
+            self.model_uri = model_uri
 
     def fail(self, exc: Exception) -> None:
         with self._lock:
@@ -68,6 +70,7 @@ class TrainJob:
                 "finished_at": self.finished_at.isoformat() if self.finished_at else None,
                 "metrics": self.metrics,
                 "model_path": self.model_path,
+                "model_uri": self.model_uri,
                 "error": self.error,
                 "logs": list(self._log),
             }
@@ -91,4 +94,3 @@ class TrainManager:
     def list(self) -> List[TrainJob]:
         with self._lock:
             return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
-
