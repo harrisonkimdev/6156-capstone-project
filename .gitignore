@@ -215,3 +215,6 @@ data/
 BetaMove/rawImages/
 models/
 docs/_build/
+
+# Model weights
+*.pt
