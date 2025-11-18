@@ -226,6 +226,206 @@ def cluster_holds(
     return clustered
 
 
+def track_holds(
+    detections: Sequence[HoldDetection],
+    *,
+    iou_threshold: float = 0.5,
+    max_age: int = 5,
+    min_hits: int = 3,
+    process_noise: float = 0.1,
+    measurement_noise: float = 0.5,
+) -> List["HoldTrack"]:
+    """Track holds across frames using IoU matching and Kalman filtering.
+    
+    This provides temporal tracking with better stability than clustering alone.
+    Holds are tracked frame-by-frame with:
+    - IoU matching: Associate detections to existing tracks
+    - Kalman filtering: Predict and update hold positions
+    - Track management: Create, confirm, and delete tracks
+    
+    Args:
+        detections: All hold detections from detect_holds()
+        iou_threshold: Minimum IoU for detection-track matching
+        max_age: Maximum frames without detection before track deletion
+        min_hits: Minimum detections before track is confirmed
+        process_noise: Kalman filter process noise
+        measurement_noise: Kalman filter measurement noise
+    
+    Returns:
+        List of confirmed HoldTrack objects
+    """
+    from .hold_tracking import IoUTracker
+    
+    if not detections:
+        return []
+    
+    # Group detections by frame
+    detections_by_frame: dict[int, List[HoldDetection]] = {}
+    for det in detections:
+        if det.frame_index not in detections_by_frame:
+            detections_by_frame[det.frame_index] = []
+        detections_by_frame[det.frame_index].append(det)
+    
+    # Initialize tracker
+    tracker = IoUTracker(
+        iou_threshold=iou_threshold,
+        max_age=max_age,
+        min_hits=min_hits,
+        process_noise=process_noise,
+        measurement_noise=measurement_noise,
+    )
+    
+    # Process frames in order
+    for frame_idx in sorted(detections_by_frame.keys()):
+        frame_dets = detections_by_frame[frame_idx]
+        
+        # Convert detections to tracker format: (bbox, label, hold_type, confidence)
+        frame_dets_formatted = [
+            (
+                (det.x_center, det.y_center, det.width, det.height),
+                det.label,
+                det.hold_type,
+                det.confidence,
+            )
+            for det in frame_dets
+        ]
+        
+        # Update tracker with frame detections
+        tracker.update_tracks(frame_idx, frame_dets_formatted)
+    
+    # Return confirmed tracks only
+    return tracker.get_confirmed_tracks()
+
+
+def cluster_tracks(
+    tracks: Sequence["HoldTrack"],
+    *,
+    eps: float = 0.03,
+    min_samples: int = 1,
+) -> List[ClusteredHold]:
+    """Cluster tracked holds to derive final route-level hold positions.
+    
+    This is similar to cluster_holds() but operates on track centroids
+    using the track history for more stable position estimates.
+    
+    Args:
+        tracks: List of HoldTrack objects from track_holds()
+        eps: DBSCAN epsilon (spatial distance threshold)
+        min_samples: DBSCAN minimum samples per cluster
+    
+    Returns:
+        List of ClusteredHold objects
+    """
+    if not tracks:
+        return []
+    
+    # Extract track centroids (using Kalman filtered positions)
+    points = []
+    track_info = []
+    
+    for track in tracks:
+        # Use Kalman state for position (more stable than raw detections)
+        x = float(track.kalman_state[0])
+        y = float(track.kalman_state[1])
+        points.append([x, y])
+        
+        # Average confidence from history
+        if track.history:
+            avg_conf = sum(h[3] for h in track.history) / len(track.history)
+        else:
+            avg_conf = 0.5
+        
+        track_info.append({
+            "label": track.label,
+            "hold_type": track.hold_type,
+            "confidence": avg_conf,
+            "hits": track.hits,
+            "bbox": track.bbox,
+        })
+    
+    points_array = np.array(points, dtype=float)
+    
+    # Cluster using DBSCAN
+    try:
+        from sklearn.cluster import DBSCAN  # type: ignore
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points_array)
+        cluster_ids = clustering.labels_
+    except Exception:  # pragma: no cover - fallback
+        cluster_ids = np.arange(len(points_array))
+    
+    unique_ids = [cid for cid in sorted(set(int(c) for c in cluster_ids)) if cid >= 0]
+    clustered: List[ClusteredHold] = []
+    
+    # Handle unclustered tracks (noise points)
+    if not unique_ids or -1 in cluster_ids:
+        for idx, (point, info) in enumerate(zip(points, track_info)):
+            if cluster_ids[idx] == -1 or not unique_ids:
+                clustered.append(
+                    ClusteredHold(
+                        hold_id=f"track_{idx}",
+                        label=info["label"],
+                        x=point[0],
+                        y=point[1],
+                        radius=max(info["bbox"][2], info["bbox"][3]) / 2.0,
+                        detections=info["hits"],
+                        avg_confidence=info["confidence"],
+                        hold_type=info["hold_type"],
+                        type_confidence=info["confidence"] if info["hold_type"] else None,
+                    )
+                )
+    
+    # Process clusters
+    for cid in unique_ids:
+        mask = cluster_ids == cid
+        cluster_pts = points_array[mask]
+        cluster_info = [track_info[i] for i in range(len(track_info)) if mask[i]]
+        
+        # Cluster centroid
+        x_mean = float(cluster_pts[:, 0].mean())
+        y_mean = float(cluster_pts[:, 1].mean())
+        
+        # Radius: mean distance to centroid + buffer
+        dists = np.linalg.norm(cluster_pts - np.array([[x_mean, y_mean]]), axis=1)
+        radius = float(dists.mean() + 0.01)
+        
+        # Aggregate cluster properties
+        labels = [info["label"] for info in cluster_info]
+        hold_types = [info["hold_type"] for info in cluster_info if info["hold_type"]]
+        confidences = [info["confidence"] for info in cluster_info]
+        total_hits = sum(info["hits"] for info in cluster_info)
+        
+        # Dominant label
+        from collections import Counter
+        label_counts = Counter(labels)
+        dominant_label = label_counts.most_common(1)[0][0]
+        
+        # Dominant hold type
+        dominant_type = None
+        type_conf = None
+        if hold_types:
+            type_counts = Counter(hold_types)
+            dominant_type = type_counts.most_common(1)[0][0]
+            # Average confidence of tracks with this type
+            type_confs = [info["confidence"] for info in cluster_info if info["hold_type"] == dominant_type]
+            type_conf = sum(type_confs) / len(type_confs) if type_confs else None
+        
+        clustered.append(
+            ClusteredHold(
+                hold_id=f"track_cluster_{cid}",
+                label=dominant_label,
+                x=x_mean,
+                y=y_mean,
+                radius=radius,
+                detections=total_hits,
+                avg_confidence=sum(confidences) / len(confidences),
+                hold_type=dominant_type,
+                type_confidence=type_conf,
+            )
+        )
+    
+    return clustered
+
+
 def export_holds_json(
     clustered: Sequence[ClusteredHold],
     *,
@@ -246,9 +446,42 @@ def extract_and_cluster_holds(
     hold_labels: Sequence[str] = ("hold", "foot_hold", "volume", "jug", "crimp", "sloper", "pinch"),
     eps: float = 0.03,
     min_samples: int = 3,
+    use_tracking: bool = True,
+    iou_threshold: float = 0.5,
+    max_age: int = 5,
+    min_hits: int = 3,
 ) -> List[ClusteredHold]:
+    """Extract and cluster holds from video frames.
+    
+    Args:
+        image_paths: Sequence of image file paths
+        model_name: YOLO model name
+        device: Device for YOLO inference
+        hold_labels: Labels to filter for holds
+        eps: DBSCAN epsilon for clustering
+        min_samples: DBSCAN minimum samples
+        use_tracking: If True, use temporal tracking (IoU + Kalman). If False, use old DBSCAN-only method.
+        iou_threshold: IoU threshold for tracking (only used if use_tracking=True)
+        max_age: Max frames without detection for tracking (only used if use_tracking=True)
+        min_hits: Min detections for confirmed track (only used if use_tracking=True)
+    
+    Returns:
+        List of ClusteredHold objects
+    """
     detections = detect_holds(image_paths, model_name=model_name, device=device, hold_labels=hold_labels)
-    return cluster_holds(detections, eps=eps, min_samples=min_samples)
+    
+    if use_tracking:
+        # New method: temporal tracking with IoU + Kalman
+        tracks = track_holds(
+            detections,
+            iou_threshold=iou_threshold,
+            max_age=max_age,
+            min_hits=min_hits,
+        )
+        return cluster_tracks(tracks, eps=eps, min_samples=min_samples)
+    else:
+        # Old method: DBSCAN clustering only (backward compatibility)
+        return cluster_holds(detections, eps=eps, min_samples=min_samples)
 
 
 __all__ = [
@@ -256,6 +489,8 @@ __all__ = [
     "ClusteredHold",
     "detect_holds",
     "cluster_holds",
+    "track_holds",
+    "cluster_tracks",
     "export_holds_json",
     "extract_and_cluster_holds",
 ]
