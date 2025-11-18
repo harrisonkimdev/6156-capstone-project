@@ -1,0 +1,10 @@
+numpy
+pandas
+opencv-python
+mediapipe==0.10.9 ; python_version >= "3.8"
+ultralytics==8.0.196
+xgboost
+scikit-learn
+fastapi
+uvicorn
+protobuf>=3.20.3,<4
