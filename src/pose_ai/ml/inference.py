@@ -1,4 +1,4 @@
-"""Inference module for BiLSTM multitask model."""
+"""Inference module for multitask models (BiLSTM and Transformer)."""
 
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ class PredictionResult:
     next_action_name: str
 
 
-class BiLSTMInference:
-    """Inference wrapper for BiLSTM multitask model."""
+class ModelInference:
+    """Unified inference wrapper for multitask models (BiLSTM or Transformer)."""
     
     ACTION_NAMES = ["no_change", "left_hand", "right_hand", "left_foot", "right_foot"]
     
@@ -38,7 +38,7 @@ class BiLSTMInference:
         device: str = "cpu",
         window_size: int = 32,
     ):
-        """Initialize inference engine.
+        """Initialize inference engine with auto-detection of model type.
         
         Args:
             model_path: Path to trained model (.pt file)
@@ -52,9 +52,19 @@ class BiLSTMInference:
         self.window_size = window_size
         self.device = torch.device(device)
         
-        # Load model
-        from .models import BiLSTMMultitaskModel
-        self.model = BiLSTMMultitaskModel.load(model_path, device=device)
+        # Load model with auto-detection
+        checkpoint = torch.load(model_path, map_location=device)
+        self.model_type = checkpoint.get("model_type", "bilstm")  # Default to bilstm for old checkpoints
+        
+        from .models import BiLSTMMultitaskModel, TransformerMultitaskModel
+        
+        if self.model_type == "bilstm":
+            self.model = BiLSTMMultitaskModel.load(model_path, device=device)
+        elif self.model_type == "transformer":
+            self.model = TransformerMultitaskModel.load(model_path, device=device)
+        else:
+            raise ValueError(f"Unknown model type: {self.model_type}")
+        
         self.model.eval()
         
         # Load normalization parameters
@@ -197,8 +207,12 @@ class BiLSTMInference:
         return action_class, action_probs_np
 
 
+# Backward compatibility alias
+BiLSTMInference = ModelInference
+
+
 def batch_inference(
-    inference_engine: BiLSTMInference,
+    inference_engine: ModelInference,
     feature_paths: Sequence[Path],
     output_dir: Path,
     stride: int = 1,
@@ -224,6 +238,7 @@ def batch_inference(
             # Convert to JSON-serializable format
             output_data = {
                 "video": feature_path.stem,
+                "model_type": inference_engine.model_type,
                 "predictions": [
                     {
                         "frame_index": r.frame_index,
@@ -248,7 +263,8 @@ def batch_inference(
 
 
 __all__ = [
-    "BiLSTMInference",
+    "ModelInference",
+    "BiLSTMInference",  # Backward compatibility
     "PredictionResult",
     "batch_inference",
 ]

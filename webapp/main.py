@@ -286,11 +286,11 @@ def get_ml_predictions(job_id: str):
         raise HTTPException(status_code=404, detail="Features not found")
     
     try:
-        # Initialize inference engine
-        from pose_ai.ml.inference import BiLSTMInference
+        # Initialize inference engine (auto-detects BiLSTM or Transformer)
+        from pose_ai.ml.inference import ModelInference
         
         norm_path = ROOT_DIR / "models" / "checkpoints" / "normalization.npz"
-        inference = BiLSTMInference(
+        inference = ModelInference(
             model_path=model_path,
             normalization_path=norm_path if norm_path.exists() else None,
             device="cpu",  # Use CPU for web service

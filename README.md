@@ -18,10 +18,12 @@ The pipeline processes climbing videos through frame extraction, pose estimation
 ### Key Features
 
 - **Pose Estimation**: MediaPipe 33-landmark detection
-- **Hold Detection**: YOLOv8n/m with DBSCAN clustering
+- **Hold Detection**: YOLOv8n/m with DBSCAN clustering and temporal tracking
+- **Hold Type Classification**: YOLOv8 fine-tuning for hold types (crimp, sloper, jug, pinch, foot_only, volume)
 - **Wall Angle**: Automatic estimation (Hough + PCA)
-- **Efficiency Scoring**: 5-component rule-based metric
-- **Next-Action Recommendations**: Distance-based hold suggestions
+- **Efficiency Scoring**: 7-component physics-based metric with technique bonuses
+- **Next-Action Recommendations**: Rule-based planner with hold type awareness
+- **ML Models**: BiLSTM and Transformer multitask models (efficiency + next-action)
 - **Web UI**: FastAPI with real-time job status and results
 - **Cloud Storage**: Optional GCS integration for videos/frames/models
 - **Training UI**: XGBoost model training with parameter tuning
@@ -129,6 +131,136 @@ Adjust `--min-score` / `--min-visibility` to filter low-confidence detections. O
 
 ---
 
+## ML Model Training & Evaluation
+
+The system supports multiple ML models for efficiency prediction and next-action classification:
+- **BiLSTM**: Bidirectional LSTM with attention pooling (baseline)
+- **Transformer**: Multi-head self-attention encoder with positional encoding
+
+### Hold Type Annotation & Classification
+
+Before training hold-aware models, you can annotate and train a hold type classifier:
+
+#### 1. Annotate Holds
+Interactive tool for labeling hold types in images:
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/annotate_holds.py \
+  data/raw_images \
+  --output data/holds_training
+```
+Controls:
+- `c`: crimp, `s`: sloper, `j`: jug, `p`: pinch, `f`: foot_only, `v`: volume
+- `u`: undo last box, `n`: next image, `q`: quit and save
+
+#### 2. Train YOLOv8 for Hold Type Classification
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/train_yolo_holds.py \
+  --data data/holds_training/dataset.yaml \
+  --model yolov8n.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --device cuda
+```
+Outputs: `runs/detect/train/weights/best.pt` (use for hold type detection)
+
+### BiLSTM & Transformer Training
+
+Train temporal sequence models for efficiency regression and next-action classification:
+
+#### 1. Train BiLSTM Model (Default)
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/train_model.py \
+  --data data/features \
+  --model-type bilstm \
+  --epochs 100 \
+  --batch-size 32 \
+  --hidden-dim 128 \
+  --num-layers 2 \
+  --device cuda
+```
+
+Key parameters:
+- `--hidden-dim`: LSTM hidden dimension (default: 128)
+- `--num-layers`: Number of LSTM layers (default: 2)
+- `--no-attention`: Disable attention pooling
+- `--lr`: Learning rate (default: 0.001)
+- `--patience`: Early stopping patience (default: 10)
+
+#### 2. Train Transformer Model
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/train_model.py \
+  --data data/features \
+  --model-type transformer \
+  --epochs 100 \
+  --batch-size 32 \
+  --d-model 128 \
+  --num-layers 4 \
+  --num-heads 8 \
+  --device cuda
+```
+
+Key parameters:
+- `--d-model`: Model dimension (default: 128)
+- `--num-heads`: Number of attention heads (default: 8)
+- `--num-layers`: Number of transformer layers (default: 4)
+- `--dim-feedforward`: Feedforward dimension (default: 512)
+- `--pooling`: Pooling strategy: `mean`, `max`, or `cls` (default: mean)
+- `--positional-encoding`: `sinusoidal` or `learnable` (default: sinusoidal)
+
+#### 3. Evaluate Model
+Auto-detects model type (BiLSTM or Transformer) from checkpoint:
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/evaluate_model.py \
+  --model models/checkpoints/best_model.pt \
+  --data data/features \
+  --split test \
+  --device cuda
+```
+
+Options:
+- `--split`: Evaluate on `train`, `val`, `test`, or `all` (default: test)
+- `--output`: Optional path to save results JSON
+
+Outputs:
+- **Efficiency Metrics**: MAE, RMSE, Correlation, R²
+- **Action Metrics**: Accuracy, per-class accuracy, confusion matrix
+
+### Backward Compatibility
+
+Old scripts are deprecated but still work:
+```bash
+# These forward to train_model.py and evaluate_model.py
+python scripts/train_bilstm.py --data data/features
+python scripts/evaluate_bilstm.py --model models/checkpoints/bilstm_multitask.pt
+```
+
+---
+
+## Command Reference Table
+
+| Task | Command | Key Options |
+|------|---------|-------------|
+| **Pipeline** | | |
+| Extract frames | `extract_frames.py` | `--interval`, `--output` |
+| Pose estimation | `run_pose_estimation.py` | `--frames-root` |
+| Feature export | `run_feature_export.py` | `<manifest.json>` |
+| Segment metrics | `run_segment_report.py` | `<manifest.json>` |
+| Full pipeline | `run_pipeline.py` | `--interval`, `--out` |
+| **Hold Annotation** | | |
+| Annotate holds | `annotate_holds.py` | `--output` |
+| Train YOLO holds | `train_yolo_holds.py` | `--data`, `--model`, `--epochs` |
+| **ML Training** | | |
+| Train BiLSTM | `train_model.py` | `--model-type bilstm`, `--hidden-dim`, `--epochs` |
+| Train Transformer | `train_model.py` | `--model-type transformer`, `--num-heads`, `--num-layers` |
+| Evaluate model | `evaluate_model.py` | `--model`, `--split`, `--data` |
+| **XGBoost** | | |
+| Train XGBoost | `train_xgboost.py` | `--label-column`, `--model-out` |
+| **Visualization** | | |
+| Visualize pose | `visualize_pose.py` | `--min-score`, `--min-visibility` |
+
+---
+
 ## Web UI
 
 Run the entire pipeline from a browser via the FastAPI app in `webapp/`.
@@ -151,6 +283,7 @@ See [PIPELINE_GUIDE.md](docs/PIPELINE_GUIDE.md#web-api--ui) for complete API doc
 - `POST /api/jobs` — Create pipeline job with YOLO configuration
 - `GET /api/jobs/{job_id}` — Get job status and artifacts
 - `GET /api/jobs/{job_id}/analysis` — Get efficiency scores and recommendations
+- `GET /api/jobs/{job_id}/ml_predictions` — Get BiLSTM/Transformer predictions (efficiency + next-action)
 - `DELETE /api/jobs/{job_id}` — Clear job from active list
 - `POST /api/training/jobs` — Create XGBoost training job
 - `GET /api/training/jobs/{job_id}` — Get training status and metrics

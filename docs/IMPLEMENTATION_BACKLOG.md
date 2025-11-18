@@ -131,7 +131,7 @@
 **Formula**:
 
 ```
-score_eff = w1*stab + w4*eff_path 
+score_eff = w1*stab + w4*eff_path
             - (pen_support + pen_wall + pen_jerk + pen_reach)
             + technique_bonus
 ```

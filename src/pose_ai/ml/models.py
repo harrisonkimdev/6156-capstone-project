@@ -1,10 +1,11 @@
-"""BiLSTM multitask model for efficiency regression and next-action classification."""
+"""BiLSTM and Transformer multitask models for efficiency regression and next-action classification."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+import math
 
 try:
     import torch
@@ -153,6 +154,7 @@ class BiLSTMMultitaskModel(nn.Module):
     def save(self, path: Path) -> None:
         """Save model checkpoint."""
         checkpoint = {
+            "model_type": "bilstm",
             "config": {
                 "input_dim": self.config.input_dim,
                 "hidden_dim": self.config.hidden_dim,
@@ -175,6 +177,248 @@ class BiLSTMMultitaskModel(nn.Module):
         checkpoint = torch.load(path, map_location=device)
         config_dict = checkpoint["config"]
         config = ModelConfig(**config_dict)
+        
+        model = cls(config)
+        model.load_state_dict(checkpoint["state_dict"])
+        model.to(device)
+        
+        return model
+
+
+@dataclass(slots=True)
+class TransformerConfig:
+    """Configuration for Transformer multitask model."""
+    input_dim: int = 60  # Feature dimension
+    d_model: int = 128  # Model dimension (must be divisible by nhead)
+    nhead: int = 8  # Number of attention heads
+    num_layers: int = 4  # Number of transformer layers
+    dim_feedforward: int = 512  # Feedforward network dimension
+    dropout: float = 0.3  # Dropout rate
+    num_action_classes: int = 5  # Number of next-action classes (0-4)
+    pooling: str = "mean"  # Pooling strategy: "mean", "max", or "cls"
+    positional_encoding: str = "sinusoidal"  # "sinusoidal" or "learnable"
+
+
+class PositionalEncoding(nn.Module):
+    """Positional encoding for transformer sequences.
+    
+    Adds temporal information to input features using either sinusoidal
+    encoding (fixed) or learnable position embeddings.
+    """
+    
+    def __init__(
+        self,
+        d_model: int,
+        max_len: int = 100,
+        encoding_type: str = "sinusoidal",
+        dropout: float = 0.1,
+    ):
+        """Initialize positional encoding.
+        
+        Args:
+            d_model: Model dimension
+            max_len: Maximum sequence length
+            encoding_type: "sinusoidal" or "learnable"
+            dropout: Dropout rate
+        """
+        super().__init__()
+        if not HAS_TORCH:
+            raise ImportError("PyTorch is required. Install with: pip install torch")
+        
+        self.dropout = nn.Dropout(p=dropout)
+        self.encoding_type = encoding_type
+        
+        if encoding_type == "sinusoidal":
+            # Create sinusoidal positional encoding
+            pe = torch.zeros(max_len, d_model)
+            position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+            
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            pe = pe.unsqueeze(0)  # (1, max_len, d_model)
+            
+            self.register_buffer('pe', pe)
+        elif encoding_type == "learnable":
+            # Learnable position embeddings
+            self.pe = nn.Parameter(torch.randn(1, max_len, d_model))
+        else:
+            raise ValueError(f"Unknown encoding_type: {encoding_type}")
+    
+    def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        """Add positional encoding to input.
+        
+        Args:
+            x: Input tensor (batch, seq_len, d_model)
+        
+        Returns:
+            x + positional encoding (batch, seq_len, d_model)
+        """
+        seq_len = x.size(1)
+        x = x + self.pe[:, :seq_len, :]
+        return self.dropout(x)
+
+
+class TransformerMultitaskModel(nn.Module):
+    """Transformer model with multitask heads for efficiency regression and next-action classification."""
+    
+    def __init__(self, config: Optional[TransformerConfig] = None):
+        super().__init__()
+        if not HAS_TORCH:
+            raise ImportError("PyTorch is required. Install with: pip install torch")
+        
+        self.config = config or TransformerConfig()
+        
+        # Input projection (if input_dim != d_model)
+        if self.config.input_dim != self.config.d_model:
+            self.input_projection = nn.Linear(self.config.input_dim, self.config.d_model)
+        else:
+            self.input_projection = None
+        
+        # Positional encoding
+        self.pos_encoder = PositionalEncoding(
+            d_model=self.config.d_model,
+            max_len=100,
+            encoding_type=self.config.positional_encoding,
+            dropout=self.config.dropout,
+        )
+        
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.config.d_model,
+            nhead=self.config.nhead,
+            dim_feedforward=self.config.dim_feedforward,
+            dropout=self.config.dropout,
+            batch_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=self.config.num_layers,
+        )
+        
+        # CLS token (if using cls pooling)
+        if self.config.pooling == "cls":
+            self.cls_token = nn.Parameter(torch.randn(1, 1, self.config.d_model))
+        else:
+            self.cls_token = None
+        
+        # Dropout
+        self.dropout = nn.Dropout(self.config.dropout)
+        
+        # Task 1: Efficiency regression head
+        self.efficiency_head = nn.Sequential(
+            nn.Linear(self.config.d_model, 64),
+            nn.ReLU(),
+            nn.Dropout(self.config.dropout),
+            nn.Linear(64, 1),
+        )
+        
+        # Task 2: Next-action classification head
+        self.action_head = nn.Sequential(
+            nn.Linear(self.config.d_model, 64),
+            nn.ReLU(),
+            nn.Dropout(self.config.dropout),
+            nn.Linear(64, self.config.num_action_classes),
+        )
+    
+    def forward(
+        self,
+        x: "torch.Tensor",
+    ) -> Tuple["torch.Tensor", "torch.Tensor"]:
+        """Forward pass.
+        
+        Args:
+            x: Input tensor of shape (batch, seq_len, input_dim)
+        
+        Returns:
+            (efficiency_pred, action_logits)
+            - efficiency_pred: (batch, 1) - efficiency scores
+            - action_logits: (batch, num_action_classes) - logits for next-action
+        """
+        batch_size = x.size(0)
+        
+        # Input projection
+        if self.input_projection is not None:
+            x = self.input_projection(x)  # (batch, seq_len, d_model)
+        
+        # Add CLS token if using cls pooling
+        if self.cls_token is not None:
+            cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
+            x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, d_model)
+        
+        # Add positional encoding
+        x = self.pos_encoder(x)  # (batch, seq_len[+1], d_model)
+        
+        # Transformer encoding
+        x = self.transformer_encoder(x)  # (batch, seq_len[+1], d_model)
+        
+        # Pooling
+        if self.config.pooling == "cls":
+            # Use CLS token
+            pooled = x[:, 0, :]  # (batch, d_model)
+        elif self.config.pooling == "mean":
+            # Mean pooling
+            if self.cls_token is not None:
+                pooled = x[:, 1:, :].mean(dim=1)  # Exclude CLS token
+            else:
+                pooled = x.mean(dim=1)  # (batch, d_model)
+        elif self.config.pooling == "max":
+            # Max pooling
+            if self.cls_token is not None:
+                pooled = x[:, 1:, :].max(dim=1)[0]  # Exclude CLS token
+            else:
+                pooled = x.max(dim=1)[0]  # (batch, d_model)
+        else:
+            raise ValueError(f"Unknown pooling strategy: {self.config.pooling}")
+        
+        pooled = self.dropout(pooled)
+        
+        # Task 1: Efficiency regression
+        efficiency_pred = self.efficiency_head(pooled)  # (batch, 1)
+        
+        # Task 2: Next-action classification
+        action_logits = self.action_head(pooled)  # (batch, num_action_classes)
+        
+        return efficiency_pred, action_logits
+    
+    def predict_efficiency(self, x: "torch.Tensor") -> "torch.Tensor":
+        """Predict efficiency scores only."""
+        efficiency_pred, _ = self.forward(x)
+        return efficiency_pred
+    
+    def predict_action(self, x: "torch.Tensor") -> "torch.Tensor":
+        """Predict next-action class probabilities."""
+        _, action_logits = self.forward(x)
+        return F.softmax(action_logits, dim=-1)
+    
+    def save(self, path: Path) -> None:
+        """Save model checkpoint."""
+        checkpoint = {
+            "model_type": "transformer",
+            "config": {
+                "input_dim": self.config.input_dim,
+                "d_model": self.config.d_model,
+                "nhead": self.config.nhead,
+                "num_layers": self.config.num_layers,
+                "dim_feedforward": self.config.dim_feedforward,
+                "dropout": self.config.dropout,
+                "num_action_classes": self.config.num_action_classes,
+                "pooling": self.config.pooling,
+                "positional_encoding": self.config.positional_encoding,
+            },
+            "state_dict": self.state_dict(),
+        }
+        torch.save(checkpoint, path)
+    
+    @classmethod
+    def load(cls, path: Path, device: str = "cpu") -> "TransformerMultitaskModel":
+        """Load model from checkpoint."""
+        if not HAS_TORCH:
+            raise ImportError("PyTorch is required. Install with: pip install torch")
+        
+        checkpoint = torch.load(path, map_location=device)
+        config_dict = checkpoint["config"]
+        config = TransformerConfig(**config_dict)
         
         model = cls(config)
         model.load_state_dict(checkpoint["state_dict"])
@@ -263,9 +507,12 @@ def count_parameters(model: "nn.Module") -> int:
 
 __all__ = [
     "BiLSTMMultitaskModel",
+    "TransformerMultitaskModel",
     "ModelConfig",
+    "TransformerConfig",
     "MultitaskLoss",
     "AttentionPooling",
+    "PositionalEncoding",
     "count_parameters",
 ]
 
