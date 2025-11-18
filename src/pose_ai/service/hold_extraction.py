@@ -38,6 +38,7 @@ class HoldDetection:
     y_center: float  # normalized 0-1
     width: float     # normalized 0-1
     height: float    # normalized 0-1
+    hold_type: str | None = None  # Specific type: crimp, sloper, jug, pinch, foot_only, volume
 
 
 @dataclass(slots=True)
@@ -49,9 +50,11 @@ class ClusteredHold:
     radius: float
     detections: int
     avg_confidence: float
+    hold_type: str | None = None  # Specific type: crimp, sloper, jug, pinch, foot_only, volume
+    type_confidence: float | None = None  # Confidence of type prediction
 
     def as_dict(self) -> dict[str, object]:  # pragma: no cover - convenience
-        return {
+        result = {
             "hold_id": self.hold_id,
             "label": self.label,
             "coords": [self.x, self.y],
@@ -60,6 +63,11 @@ class ClusteredHold:
             "avg_confidence": self.avg_confidence,
             "normalized": True,
         }
+        if self.hold_type is not None:
+            result["hold_type"] = self.hold_type
+        if self.type_confidence is not None:
+            result["type_confidence"] = self.type_confidence
+        return result
 
 
 def _ensure_model(model_name: str) -> object:
@@ -119,6 +127,10 @@ def detect_holds(
                 y_center = (y1 + height / 2.0)
                 width_n = width
                 height_n = height
+            # Determine hold_type if label is specific type
+            hold_type_labels = ("crimp", "sloper", "jug", "pinch", "foot_only", "volume")
+            hold_type = label if label in hold_type_labels else None
+            
             detections.append(
                 HoldDetection(
                     frame_index=frame_idx,
@@ -128,6 +140,7 @@ def detect_holds(
                     y_center=y_center,
                     width=width_n,
                     height=height_n,
+                    hold_type=hold_type,
                 )
             )
     return detections
@@ -144,6 +157,7 @@ def cluster_holds(
     points = np.array([[d.x_center, d.y_center] for d in detections], dtype=float)
     labels = np.array([d.label for d in detections], dtype=object)
     confidences = np.array([d.confidence for d in detections], dtype=float)
+    hold_types = np.array([d.hold_type if d.hold_type else "" for d in detections], dtype=object)
 
     try:
         from sklearn.cluster import DBSCAN  # type: ignore
@@ -166,6 +180,8 @@ def cluster_holds(
                     radius=max(d.width, d.height) / 2.0,
                     detections=1,
                     avg_confidence=d.confidence,
+                    hold_type=d.hold_type,
+                    type_confidence=d.confidence if d.hold_type else None,
                 )
             )
         return clustered
@@ -175,6 +191,7 @@ def cluster_holds(
         cluster_pts = points[mask]
         cluster_labels = labels[mask]
         cluster_conf = confidences[mask]
+        cluster_types = hold_types[mask]
         x_mean = float(cluster_pts[:, 0].mean())
         y_mean = float(cluster_pts[:, 1].mean())
         # Radius: mean distance to centroid + small buffer
@@ -183,6 +200,16 @@ def cluster_holds(
         # Dominant label
         lbl_values, counts = np.unique(cluster_labels, return_counts=True)
         dominant_label = str(lbl_values[int(np.argmax(counts))])
+        # Dominant hold_type (if any)
+        non_empty_types = cluster_types[cluster_types != ""]
+        dominant_type = None
+        type_conf = None
+        if len(non_empty_types) > 0:
+            type_values, type_counts = np.unique(non_empty_types, return_counts=True)
+            dominant_type = str(type_values[int(np.argmax(type_counts))])
+            # Average confidence of detections with this type
+            type_mask = cluster_types == dominant_type
+            type_conf = float(cluster_conf[type_mask].mean()) if type_mask.any() else None
         clustered.append(
             ClusteredHold(
                 hold_id=f"hold_{cid}",
@@ -192,6 +219,8 @@ def cluster_holds(
                 radius=radius,
                 detections=int(mask.sum()),
                 avg_confidence=float(cluster_conf.mean()),
+                hold_type=dominant_type,
+                type_confidence=type_conf,
             )
         )
     return clustered

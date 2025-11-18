@@ -258,6 +258,74 @@ async def job_analysis(job_id: str) -> dict[str, object]:
         "holds_count": len(holds_payload),
         "wall_angle": feature_rows[-1].get("wall_angle") if feature_rows else None,
     }
+@app.get("/api/jobs/{job_id}/ml_predictions")
+def get_ml_predictions(job_id: str):
+    """Get ML model predictions for a job.
+    
+    Returns efficiency scores and next-action predictions from BiLSTM model.
+    Requires trained model at models/checkpoints/bilstm_multitask.pt
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed yet")
+    
+    # Check if model exists
+    model_path = ROOT_DIR / "models" / "checkpoints" / "bilstm_multitask.pt"
+    if not model_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="ML model not available. Train model first using scripts/train_bilstm.py"
+        )
+    
+    # Load features
+    import json
+    features_path = ROOT_DIR / "data" / "uploads" / job_id / "features.json"
+    if not features_path.exists():
+        raise HTTPException(status_code=404, detail="Features not found")
+    
+    try:
+        # Initialize inference engine
+        from pose_ai.ml.inference import BiLSTMInference
+        
+        norm_path = ROOT_DIR / "models" / "checkpoints" / "normalization.npz"
+        inference = BiLSTMInference(
+            model_path=model_path,
+            normalization_path=norm_path if norm_path.exists() else None,
+            device="cpu",  # Use CPU for web service
+            window_size=32,
+        )
+        
+        # Run inference
+        results = inference.predict_from_json(features_path, stride=5)
+        
+        # Format results
+        predictions = [
+            {
+                "frame_index": r.frame_index,
+                "efficiency_score": r.efficiency_score,
+                "next_action": r.next_action_name,
+                "next_action_probs": r.next_action_probs,
+            }
+            for r in results
+        ]
+        
+        return {
+            "job_id": job_id,
+            "num_predictions": len(predictions),
+            "predictions": predictions,
+        }
+    
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="PyTorch not installed. Install with: pip install torch"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Emit simple structured logs for every incoming HTTP request."""

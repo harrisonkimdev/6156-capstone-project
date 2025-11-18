@@ -28,6 +28,7 @@ class MoveCandidate:
     efficiency_delta: float
     reasoning: str
     constraint_violations: List[str]
+    hold_type: str | None = None  # Type of hold (jug, crimp, sloper, etc.)
 
 
 @dataclass(slots=True)
@@ -39,6 +40,9 @@ class PlannerConfig:
     max_reach_ratio: float = 1.2
     com_polygon_tolerance: float = 0.15
     stability_alpha: float = 4.0
+    prefer_jug_when_low_support: bool = True  # Prefer jug holds when support count is low
+    jug_bonus: float = 0.05  # Bonus to efficiency delta for jug holds
+    reach_hold_bonus: float = 0.03  # Bonus for crimp/sloper on reach moves
 
 
 def _safe_float(value) -> float | None:
@@ -212,7 +216,7 @@ class NextMovePlanner:
                 used_holds.add(str(hold_id))
         
         # Sample candidate holds
-        candidates: List[Tuple[str, str, Point, float]] = []  # (limb, hold_id, position, score)
+        candidates: List[Tuple[str, str, Point, float, str | None]] = []  # (limb, hold_id, position, score, hold_type)
         
         for hold in holds:
             hold_id = str(hold.get("hold_id") or hold.get("name", ""))
@@ -225,6 +229,7 @@ class NextMovePlanner:
             
             hx, hy = float(coords[0]), float(coords[1])
             hold_pos = (hx, hy)
+            hold_type = hold.get("hold_type")
             
             # Distance-based sampling score
             dist = _distance(com, hold_pos)
@@ -235,14 +240,27 @@ class NextMovePlanner:
             if hy < com_y:
                 upward_score = self.config.upward_bias * (com_y - hy)
             
-            sample_score = dist_score + upward_score
+            # Hold type preference bonus
+            type_bonus = 0.0
+            if hold_type:
+                # Count current support points
+                current_support = sum(1 for limb in ("left_hand", "right_hand", "left_foot", "right_foot") 
+                                    if current_row.get(f"{limb}_contact_on"))
+                # Prefer jugs when support is low
+                if self.config.prefer_jug_when_low_support and hold_type == "jug" and current_support < 3:
+                    type_bonus = self.config.jug_bonus
+                # Bonus for crimp/sloper on reach moves (upward progression)
+                if hy < com_y - 0.15 * body_scale and hold_type in ("crimp", "sloper"):
+                    type_bonus = max(type_bonus, self.config.reach_hold_bonus)
+            
+            sample_score = dist_score + upward_score + type_bonus
             
             # Determine which limb would use this hold (heuristic: hands for higher holds, feet for lower)
             if hy < com_y - 0.1 * body_scale:
                 # Higher hold - prefer hands
                 for limb in ("left_hand", "right_hand"):
                     if not current_row.get(f"{limb}_contact_on"):
-                        candidates.append((limb, hold_id, hold_pos, sample_score))
+                        candidates.append((limb, hold_id, hold_pos, sample_score, hold_type))
                         break
                 else:
                     # Both hands occupied, pick closest
@@ -251,14 +269,14 @@ class NextMovePlanner:
                     rh_x = _safe_float(current_row.get("right_hand_x")) or com_x
                     rh_y = _safe_float(current_row.get("right_hand_y")) or com_y
                     if _distance(hold_pos, (lh_x, lh_y)) < _distance(hold_pos, (rh_x, rh_y)):
-                        candidates.append(("left_hand", hold_id, hold_pos, sample_score))
+                        candidates.append(("left_hand", hold_id, hold_pos, sample_score, hold_type))
                     else:
-                        candidates.append(("right_hand", hold_id, hold_pos, sample_score))
+                        candidates.append(("right_hand", hold_id, hold_pos, sample_score, hold_type))
             else:
                 # Lower hold - prefer feet
                 for limb in ("left_foot", "right_foot"):
                     if not current_row.get(f"{limb}_contact_on"):
-                        candidates.append((limb, hold_id, hold_pos, sample_score))
+                        candidates.append((limb, hold_id, hold_pos, sample_score, hold_type))
                         break
                 else:
                     lf_x = _safe_float(current_row.get("left_foot_x")) or com_x
@@ -266,9 +284,9 @@ class NextMovePlanner:
                     rf_x = _safe_float(current_row.get("right_foot_x")) or com_x
                     rf_y = _safe_float(current_row.get("right_foot_y")) or com_y
                     if _distance(hold_pos, (lf_x, lf_y)) < _distance(hold_pos, (rf_x, rf_y)):
-                        candidates.append(("left_foot", hold_id, hold_pos, sample_score))
+                        candidates.append(("left_foot", hold_id, hold_pos, sample_score, hold_type))
                     else:
-                        candidates.append(("right_foot", hold_id, hold_pos, sample_score))
+                        candidates.append(("right_foot", hold_id, hold_pos, sample_score, hold_type))
         
         # Sort by sample score and take top K
         candidates.sort(key=lambda x: x[3], reverse=True)
@@ -276,18 +294,29 @@ class NextMovePlanner:
         
         # Simulate efficiency for each candidate
         move_candidates: List[MoveCandidate] = []
-        for limb, hold_id, hold_pos, _ in candidates:
+        for limb, hold_id, hold_pos, _, hold_type in candidates:
             sim_eff, violations = _simulate_efficiency(current_row, limb, hold_pos, self.config)
             
             # Current efficiency (simplified)
             current_eff = 0.5  # Placeholder
             delta_eff = sim_eff - current_eff
             
+            # Apply hold type bonus to delta
+            if hold_type:
+                current_support = sum(1 for l in ("left_hand", "right_hand", "left_foot", "right_foot") 
+                                    if current_row.get(f"{l}_contact_on"))
+                if hold_type == "jug" and current_support < 3:
+                    delta_eff += self.config.jug_bonus
+                if hold_type in ("crimp", "sloper") and hold_pos[1] < com_y - 0.15 * body_scale:
+                    delta_eff += self.config.reach_hold_bonus
+            
             reasoning_parts = []
             if delta_eff > 0:
                 reasoning_parts.append(f"Improves efficiency by {delta_eff:.2f}")
             if hold_pos[1] < com_y:
                 reasoning_parts.append("Upward progression")
+            if hold_type:
+                reasoning_parts.append(f"Hold type: {hold_type}")
             if not violations:
                 reasoning_parts.append("No constraint violations")
             
@@ -302,6 +331,7 @@ class NextMovePlanner:
                     efficiency_delta=delta_eff,
                     reasoning=reasoning,
                     constraint_violations=violations,
+                    hold_type=hold_type,
                 )
             )
         
