@@ -20,7 +20,11 @@ from pose_ai.service import (  # type: ignore  # pylint: disable=wrong-import-po
     estimate_poses_from_manifest,
     export_features_for_manifest,
     generate_segment_report,
+    annotate_manifest_with_yolo,
+    UltralyticsYoloSelector,
 )
+from pose_ai.service.hold_extraction import extract_and_cluster_holds, export_holds_json  # type: ignore
+from pose_ai.cloud.gcs import get_gcs_manager
 
 MAX_POSE_SAMPLES = 10
 MAX_VISUALS = 20
@@ -32,6 +36,7 @@ except ModuleNotFoundError:  # pragma: no cover
     visualize_pose_results = None  # type: ignore
 
 from webapp.jobs import PipelineJob
+GCS_MANAGER = get_gcs_manager()
 
 
 def _ensure_directory(path: Path) -> Path:
@@ -47,18 +52,56 @@ def _to_repo_url(path: Path) -> str | None:
     return f"/repo/{relative.as_posix()}"
 
 
+def _maybe_upload_raw_video(job: PipelineJob, video_path: Path, log: Callable[[str], None]) -> None:
+    if GCS_MANAGER is None:
+        return
+    try:
+        uri = GCS_MANAGER.upload_raw_video(video_path, upload_id=job.id)
+    except Exception as exc:  # pragma: no cover - depends on cloud credentials
+        log(f"GCS video upload skipped: {exc}")
+        return
+    if uri:
+        job.add_artifact("raw_videos", uri)
+        log(f"Uploaded raw video to {uri}")
+
+
+def _maybe_upload_frame_dir(job: PipelineJob, frame_dir: Path, log: Callable[[str], None]) -> None:
+    if GCS_MANAGER is None:
+        return
+    try:
+        uri = GCS_MANAGER.upload_frame_directory(frame_dir, job_id=job.id)
+    except Exception as exc:  # pragma: no cover
+        log(f"GCS frame upload skipped: {exc}")
+        return
+    if uri:
+        job.add_artifact("frames", uri)
+        log(f"Uploaded frames to {uri}")
+
+
 def run_pipeline_stage(
     *,
+    job: PipelineJob,
     video_dir: Path,
     output_dir: Path,
     interval: float,
     skip_visuals: bool,
+    yolo_options: dict[str, object] | None = None,
     log: Callable[[str], None],
 ) -> Tuple[List[str], List[dict[str, str]], List[dict[str, object]]]:
     video_dir = video_dir.expanduser().resolve()
     if not video_dir.exists():
         raise FileNotFoundError(f"Video directory not found: {video_dir}")
     output_dir = _ensure_directory(output_dir.expanduser().resolve())
+
+    yolo_config = yolo_options or {}
+    yolo_enabled = bool(yolo_config.get("enabled", True))
+    yolo_selector: UltralyticsYoloSelector | None = None
+    if yolo_enabled:
+        yolo_selector = UltralyticsYoloSelector(
+            model_name=str(yolo_config.get("model_name") or "yolov8n.pt"),
+            device=yolo_config.get("device"),
+            imgsz=int(yolo_config.get("imgsz") or 640),
+        )
 
     manifests: list[Path] = []
     for index, video_path in enumerate(iter_video_files(video_dir)):
@@ -73,7 +116,30 @@ def run_pipeline_stage(
         if result.manifest_path is None:
             raise RuntimeError(f"Manifest not written for {video_path}")
         log(f"Saved {result.saved_frames} frames to {result.frame_directory}")
-        manifests.append(result.manifest_path)
+        _maybe_upload_raw_video(job, result.video_path, log)
+        manifest_path = result.manifest_path
+        if yolo_enabled:
+            selection = annotate_manifest_with_yolo(
+                manifest_path,
+                enabled=True,
+                selector=yolo_selector,
+                min_confidence=float(yolo_config.get("min_confidence") or 0.35),
+                required_labels=yolo_config.get("required_labels"),
+                target_labels=yolo_config.get("target_labels"),
+                max_frames=int(yolo_config["max_frames"]) if yolo_config.get("max_frames") else None,
+                label_map=yolo_config.get("label_map") or {},
+            )
+            if selection.skipped_reason:
+                log(
+                    f"YOLO filtering skipped ({selection.skipped_reason}); "
+                    f"kept {selection.selected_frames}/{selection.total_frames} frames"
+                )
+            else:
+                log(
+                    f"YOLO filtered frames: {selection.selected_frames}/{selection.total_frames} retained"
+                )
+            manifest_path = selection.manifest_path
+        manifests.append(manifest_path)
 
     if not manifests:
         log("No videos found; nothing to process.")
@@ -86,11 +152,37 @@ def run_pipeline_stage(
         log(f"Estimating poses for {manifest_path}")
         estimate_poses_from_manifest(manifest_path)
 
+        # Hold extraction + clustering (single pass per manifest)
+        try:
+            frame_dir = manifest_path.parent
+            image_paths = [p for p in frame_dir.glob("*.jpg")]
+            if image_paths:
+                log(f"Extracting holds (model {yolo_config.get('model_name','yolov8n.pt')})")
+                clustered = extract_and_cluster_holds(
+                    image_paths,
+                    model_name=str(yolo_config.get("model_name") or "yolov8n.pt"),
+                    device=yolo_config.get("device"),
+                )
+                if clustered:
+                    holds_path = export_holds_json(clustered, output_path=frame_dir / "holds.json")
+                    job.add_artifact("holds", _to_repo_url(holds_path) or str(holds_path))
+                    log(f"Clustered {len(clustered)} holds → {holds_path.name}")
+                else:
+                    holds_path = None
+                    log("No holds detected; skipping holds.json export")
+            else:
+                holds_path = None
+                log("No JPEG frames found for hold extraction.")
+        except Exception as exc:  # pragma: no cover - defensive
+            log(f"Hold extraction failed: {exc}")
+            holds_path = None
+
         log("Exporting pose-derived features")
-        export_features_for_manifest(manifest_path)
+        export_features_for_manifest(manifest_path, holds_path=holds_path, auto_wall_angle=True)
 
         log("Aggregating segment metrics")
         generate_segment_report(manifest_path)
+        _maybe_upload_frame_dir(job, manifest_path.parent, log)
 
         pose_results = manifest_path.parent / "pose_results.json"
         if pose_results.exists() and len(pose_samples) < MAX_POSE_SAMPLES:
@@ -147,10 +239,12 @@ def execute_job(job: PipelineJob) -> None:
     job.log("Pipeline execution started")
     try:
         manifests, visualizations, pose_samples = run_pipeline_stage(
+            job=job,
             video_dir=Path(job.video_dir),
             output_dir=Path(job.output_dir),
             interval=job.interval,
             skip_visuals=job.skip_visuals,
+            yolo_options=job.yolo_options,
             log=job.log,
         )
     except Exception as exc:  # pragma: no cover

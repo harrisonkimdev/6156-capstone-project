@@ -28,6 +28,9 @@ class PipelineJob:
     output_dir: str
     interval: float
     skip_visuals: bool
+    metadata: dict[str, object] | None = None
+    yolo_options: dict[str, object] | None = None
+    artifacts: Dict[str, List[str]] = field(default_factory=dict)
     status: JobStatus = JobStatus.PENDING
     created_at: datetime = field(default_factory=_utcnow)
     started_at: Optional[datetime] = None
@@ -78,6 +81,9 @@ class PipelineJob:
                 "output_dir": self.output_dir,
                 "interval": self.interval,
                 "skip_visuals": self.skip_visuals,
+                "metadata": self.metadata or {},
+                "yolo_options": self.yolo_options or {},
+                "artifacts": self.artifacts,
                 "status": self.status.value,
                 "created_at": self.created_at.isoformat(),
                 "started_at": self.started_at.isoformat() if self.started_at else None,
@@ -102,19 +108,35 @@ class PipelineJob:
             if include_samples:
                 self.pose_samples = []
 
+    def add_artifact(self, kind: str, uri: str) -> None:
+        with self._lock:
+            entries = self.artifacts.setdefault(kind, [])
+            entries.append(uri)
+
 
 class JobManager:
     def __init__(self) -> None:
         self._jobs: Dict[str, PipelineJob] = {}
         self._lock = RLock()
 
-    def create_job(self, *, video_dir: str, output_dir: str, interval: float, skip_visuals: bool) -> PipelineJob:
+    def create_job(
+        self,
+        *,
+        video_dir: str,
+        output_dir: str,
+        interval: float,
+        skip_visuals: bool,
+        metadata: dict[str, object] | None = None,
+        yolo_options: dict[str, object] | None = None,
+    ) -> PipelineJob:
         job = PipelineJob(
             id=uuid4().hex,
             video_dir=video_dir,
             output_dir=output_dir,
             interval=interval,
             skip_visuals=skip_visuals,
+            metadata=metadata,
+            yolo_options=yolo_options,
         )
         with self._lock:
             self._jobs[job.id] = job
