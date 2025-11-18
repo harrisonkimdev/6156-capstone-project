@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 
 from pose_ai.features import HoldDefinition, summarize_features
+from pose_ai.features.contacts import ContactParams, annotate_techniques, apply_contact_filter
+from pose_ai.features.kinematics import DerivativeConfig, append_temporal_derivatives
 from pose_ai.pose.estimator import PoseFrame, PoseLandmark
+from pose_ai.recommendation.efficiency import score_steps
 from pose_ai.service.pose_service import estimate_poses_from_manifest
+from pose_ai.segmentation.steps import segment_steps_by_contacts
 
 
 def _load_pose_results(path: Path) -> List[PoseFrame]:
@@ -58,6 +62,7 @@ def export_features_for_manifest(
     holds_path: Optional[Path] = None,
     output_root: Path | None = None,
     estimator_kwargs: Optional[dict] = None,
+    auto_wall_angle: bool = False,
 ) -> Path:
     manifest_path = Path(manifest_path)
     frame_dir = manifest_path.parent
@@ -73,9 +78,19 @@ def export_features_for_manifest(
     frames = _load_pose_results(pose_results_path)
     holds = _load_holds(holds_path)
 
-    feature_rows = summarize_features(frames, holds=holds)
+    feature_rows = summarize_features(frames, holds=holds, auto_estimate_wall=auto_wall_angle)
+    append_temporal_derivatives(feature_rows, DerivativeConfig())
+    apply_contact_filter(feature_rows, ContactParams())
+    annotate_techniques(feature_rows)
+    step_segments = segment_steps_by_contacts(feature_rows)
+    step_efficiency = score_steps(feature_rows, step_segments)
     output_dir = output_root or frame_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "pose_features.json"
     Path(output_path).write_text(json.dumps(feature_rows, indent=2), encoding="utf-8")
+    step_output = output_dir / "step_efficiency.json"
+    Path(step_output).write_text(
+        json.dumps([result.as_dict() for result in step_efficiency], indent=2),
+        encoding="utf-8",
+    )
     return output_path
