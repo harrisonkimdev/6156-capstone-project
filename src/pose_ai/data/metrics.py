@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Sequence, Any
 
 import numpy as np
 
@@ -19,6 +19,8 @@ class ManifestFrame:
     frame_index: int
     timestamp_seconds: float
     relative_path: str
+    saved_index: int | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -39,9 +41,11 @@ def load_manifest(path: Path | str) -> ManifestData:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     entries = [
         ManifestFrame(
-            frame_index=item["frame_index"],
-            timestamp_seconds=item["timestamp_seconds"],
-            relative_path=item["relative_path"],
+            frame_index=int(item["frame_index"]),
+            timestamp_seconds=float(item["timestamp_seconds"]),
+            relative_path=str(item["relative_path"]),
+            saved_index=item.get("saved_index"),
+            metadata=item.get("metadata"),
         )
         for item in payload.get("frames", [])
     ]
