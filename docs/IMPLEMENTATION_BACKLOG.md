@@ -831,6 +831,7 @@ fetch("/api/jobs", {
 **Completed Implementation**:
 
 1. [x] Feature engineering (`src/pose_ai/ml/route_grading.py`)
+
    - Hold density: Holds per square meter
    - Hold spacing: Mean/median/std/min/max distances
    - Wall angle: From IMU or vision
@@ -840,17 +841,20 @@ fetch("/api/jobs", {
    - Duration: Total climbing time
 
 2. [x] XGBoost regression model
+
    - `RouteDifficultyModel` class for prediction (V0-V10)
    - `predict_with_confidence()` method
    - Training script: `scripts/train_route_grader.py`
    - Model parameters: max_depth=6, learning_rate=0.1, early_stopping=10
 
 3. [x] Gym-specific calibration
+
    - `GymGradeCalibration` class
    - Default mapping: V0-V2 (Beginner), V3-V4 (Intermediate), V5-V6 (Advanced), V7-V8 (Expert), V9-V10 (Elite)
    - Extensible for custom gym scales
 
 4. [x] API integration
+
    - Endpoint: `GET /api/jobs/{job_id}/route_grade`
    - Returns: grade, confidence, calibrated_grade, features
    - Works with completed pipeline jobs
@@ -913,6 +917,7 @@ Navigate to http://localhost:8000/grading
 - **Authoritative Spec**: [efficiency_calculation.md](efficiency_calculation.md)
 - **Current Roadmap**: [beta_model_plan.md](beta_model_plan.md)
 - **System Guide**: [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md)
+- **Testing Guide**: [TESTING_GUIDE.md](TESTING_GUIDE.md)
 - **Source Code**: [`src/pose_ai/`](../src/pose_ai/)
 
 ---
