@@ -63,6 +63,11 @@ def export_features_for_manifest(
     output_root: Path | None = None,
     estimator_kwargs: Optional[dict] = None,
     auto_wall_angle: bool = False,
+    imu_quaternion: Optional[list[float]] = None,
+    imu_euler_angles: Optional[list[float]] = None,
+    climber_height: Optional[float] = None,
+    climber_wingspan: Optional[float] = None,
+    climber_flexibility: Optional[float] = None,
 ) -> Path:
     manifest_path = Path(manifest_path)
     frame_dir = manifest_path.parent
@@ -78,7 +83,16 @@ def export_features_for_manifest(
     frames = _load_pose_results(pose_results_path)
     holds = _load_holds(holds_path)
 
-    feature_rows = summarize_features(frames, holds=holds, auto_estimate_wall=auto_wall_angle)
+    feature_rows = summarize_features(
+        frames,
+        holds=holds,
+        auto_estimate_wall=auto_wall_angle,
+        imu_quaternion=imu_quaternion,
+        imu_euler_angles=imu_euler_angles,
+        climber_height=climber_height,
+        climber_wingspan=climber_wingspan,
+        climber_flexibility=climber_flexibility,
+    )
     append_temporal_derivatives(feature_rows, DerivativeConfig())
     apply_contact_filter(feature_rows, ContactParams())
     annotate_techniques(feature_rows)

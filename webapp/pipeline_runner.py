@@ -178,7 +178,24 @@ def run_pipeline_stage(
             holds_path = None
 
         log("Exporting pose-derived features")
-        export_features_for_manifest(manifest_path, holds_path=holds_path, auto_wall_angle=True)
+        # Extract IMU and climber parameters from job metadata
+        metadata = job.metadata or {}
+        imu_quaternion = metadata.get("imu_quaternion")
+        imu_euler_angles = metadata.get("imu_euler_angles")
+        climber_height = metadata.get("climber_height")
+        climber_wingspan = metadata.get("climber_wingspan")
+        climber_flexibility = metadata.get("climber_flexibility")
+        
+        export_features_for_manifest(
+            manifest_path,
+            holds_path=holds_path,
+            auto_wall_angle=True,
+            imu_quaternion=imu_quaternion,
+            imu_euler_angles=imu_euler_angles,
+            climber_height=climber_height,
+            climber_wingspan=climber_wingspan,
+            climber_flexibility=climber_flexibility,
+        )
 
         log("Aggregating segment metrics")
         generate_segment_report(manifest_path)

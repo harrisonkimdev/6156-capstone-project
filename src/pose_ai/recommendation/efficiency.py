@@ -223,7 +223,16 @@ class StepEfficiencyComputer:
                     if body_scale:
                         dist /= body_scale
                     reach_norm = max(reach_norm, dist)
-            reach_penalties.append(max(0.0, reach_norm - self.reach_threshold))
+            
+            # Personalized reach threshold based on climber flexibility
+            climber_flexibility = _safe_float(row.get("climber_flexibility"))
+            adjusted_threshold = self.reach_threshold
+            if climber_flexibility is not None:
+                # More flexible climbers get 5-10% higher threshold (can reach further comfortably)
+                flexibility_bonus = 0.05 + 0.05 * climber_flexibility
+                adjusted_threshold *= (1.0 + flexibility_bonus)
+            
+            reach_penalties.append(max(0.0, reach_norm - adjusted_threshold))
             
             # Technique bonuses
             bicycle = _safe_float(row.get("technique_bicycle")) or 0.0

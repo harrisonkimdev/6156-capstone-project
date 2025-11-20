@@ -17,9 +17,10 @@ from .config import (
     JOINT_DEFINITIONS,
 )
 try:  # optional: wall angle utilities
-    from pose_ai.wall.angle import estimate_wall_angle  # type: ignore
+    from pose_ai.wall.angle import estimate_wall_angle, compute_wall_angle_from_imu  # type: ignore
 except Exception:  # pragma: no cover - soft dependency
     estimate_wall_angle = None  # type: ignore
+    compute_wall_angle_from_imu = None  # type: ignore
 
 TRACKED_LANDMARKS = {
     "left_hand": "left_wrist",
@@ -164,6 +165,9 @@ def pose_to_feature_row(
     *,
     holds: Optional[Dict[str, HoldDefinition]] = None,
     wall_angle_degrees: Optional[float] = None,
+    climber_height: Optional[float] = None,
+    climber_wingspan: Optional[float] = None,
+    climber_flexibility: Optional[float] = None,
 ) -> Dict[str, object]:
     feature_row: Dict[str, object] = {
         "image_path": str(frame.image_path),
@@ -195,13 +199,30 @@ def pose_to_feature_row(
     left_shoulder = lookup.get("left_shoulder")
     right_shoulder = lookup.get("right_shoulder")
     if left_shoulder and right_shoulder:
-        feature_row["body_scale"] = float(
+        detected_shoulder_width = float(
             np.linalg.norm(
                 np.array([left_shoulder.x, left_shoulder.y]) - np.array([right_shoulder.x, right_shoulder.y])
             )
         )
+        feature_row["body_scale"] = detected_shoulder_width
+        
+        # If climber height is provided, compute normalized body scale
+        if climber_height is not None:
+            # Average shoulder width is approximately 16% of height
+            expected_shoulder_width_cm = climber_height * 0.16
+            # Convert to normalized units (assuming shoulder width in image is in normalized coords)
+            # This ratio helps adjust for different body proportions
+            feature_row["body_scale_normalized"] = detected_shoulder_width * (170.0 * 0.16 / expected_shoulder_width_cm)
+        else:
+            feature_row["body_scale_normalized"] = None
     else:
         feature_row["body_scale"] = None
+        feature_row["body_scale_normalized"] = None
+    
+    # Store climber physical parameters in each feature row
+    feature_row["climber_height"] = climber_height
+    feature_row["climber_wingspan"] = climber_wingspan
+    feature_row["climber_flexibility"] = climber_flexibility
 
     left_hip = lookup.get("left_hip")
     right_hip = lookup.get("right_hip")
@@ -249,16 +270,59 @@ def summarize_features(
     holds: Optional[Dict[str, HoldDefinition]] = None,
     wall_angle_degrees: Optional[float] = None,
     auto_estimate_wall: bool = False,
+    imu_quaternion: Optional[list[float]] = None,
+    imu_euler_angles: Optional[list[float]] = None,
+    climber_height: Optional[float] = None,
+    climber_wingspan: Optional[float] = None,
+    climber_flexibility: Optional[float] = None,
 ) -> List[Dict[str, object]]:
+    """Extract features from pose frames with optional IMU and climber personalization.
+    
+    Args:
+        frames: Sequence of pose estimation results
+        holds: Optional hold definitions for contact analysis
+        wall_angle_degrees: Pre-computed wall angle (overrides all estimation)
+        auto_estimate_wall: Enable vision-based wall angle estimation (fallback)
+        imu_quaternion: Device orientation as quaternion [w, x, y, z] (priority over euler)
+        imu_euler_angles: Device orientation as Euler angles [pitch, roll, yaw] in degrees
+        climber_height: Climber height in cm (for body scale normalization)
+        climber_wingspan: Climber wingspan in cm (for reach constraints)
+        climber_flexibility: Flexibility score 0-1 (for personalized thresholds)
+    
+    Returns:
+        List of feature dictionaries, one per frame
+    """
     angle = wall_angle_degrees
-    if angle is None and auto_estimate_wall and frames and estimate_wall_angle is not None:
-        # Attempt estimation from first frame for now (could choose rest frame later).
-        try:
-            angle_result = estimate_wall_angle(frames[0].image_path)
-            angle = angle_result.angle_degrees
-        except Exception:
-            angle = None
+    
+    # Priority 1: Use pre-computed angle if provided
+    if angle is None:
+        # Priority 2: Compute from IMU sensor data
+        if (imu_quaternion is not None or imu_euler_angles is not None) and compute_wall_angle_from_imu is not None:
+            try:
+                angle_result = compute_wall_angle_from_imu(
+                    quaternion=imu_quaternion,
+                    euler_angles=imu_euler_angles,
+                )
+                angle = angle_result.angle_degrees
+            except Exception:
+                angle = None
+        
+        # Priority 3: Vision-based estimation (fallback)
+        if angle is None and auto_estimate_wall and frames and estimate_wall_angle is not None:
+            try:
+                angle_result = estimate_wall_angle(frames[0].image_path)
+                angle = angle_result.angle_degrees
+            except Exception:
+                angle = None
+    
     return [
-        pose_to_feature_row(frame, holds=holds, wall_angle_degrees=angle)
+        pose_to_feature_row(
+            frame,
+            holds=holds,
+            wall_angle_degrees=angle,
+            climber_height=climber_height,
+            climber_wingspan=climber_wingspan,
+            climber_flexibility=climber_flexibility,
+        )
         for frame in frames
     ]

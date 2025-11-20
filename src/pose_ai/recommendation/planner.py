@@ -43,6 +43,41 @@ class PlannerConfig:
     prefer_jug_when_low_support: bool = True  # Prefer jug holds when support count is low
     jug_bonus: float = 0.05  # Bonus to efficiency delta for jug holds
     reach_hold_bonus: float = 0.03  # Bonus for crimp/sloper on reach moves
+    
+    def get_adjusted_reach_ratio(
+        self,
+        climber_wingspan: float | None = None,
+        climber_height: float | None = None,
+        climber_flexibility: float | None = None,
+    ) -> float:
+        """Compute personalized reach ratio based on climber attributes.
+        
+        Args:
+            climber_wingspan: Wingspan in cm
+            climber_height: Height in cm
+            climber_flexibility: Flexibility score (0-1)
+        
+        Returns:
+            Adjusted max_reach_ratio based on climber physical attributes
+        """
+        adjusted_ratio = self.max_reach_ratio
+        
+        # Wingspan adjustment: longer wingspan relative to height = greater reach
+        if climber_wingspan is not None and climber_height is not None and climber_height > 0:
+            # Average wingspan/height ratio is approximately 1.0
+            # Adjust ±10% per 0.1 deviation from average
+            wingspan_ratio = climber_wingspan / climber_height
+            # Clamp adjustment to reasonable range (0.8 to 1.2 multiplier)
+            wingspan_multiplier = min(1.2, max(0.8, 0.9 + 0.2 * wingspan_ratio))
+            adjusted_ratio *= wingspan_multiplier
+        
+        # Flexibility bonus: more flexible climbers can reach further
+        # Add 5-10% bonus for high flexibility
+        if climber_flexibility is not None:
+            flexibility_bonus = 0.05 + 0.05 * climber_flexibility
+            adjusted_ratio *= (1.0 + flexibility_bonus)
+        
+        return adjusted_ratio
 
 
 def _safe_float(value) -> float | None:
@@ -160,11 +195,24 @@ def _simulate_efficiency(
     if support_count < config.min_support_count:
         violations.append(f"low_support_count_{support_count}")
     
-    # Check reach limit
+    # Check reach limit (personalized based on climber attributes)
     if hip_x is not None and hip_y is not None:
         reach = _distance((hip_x, hip_y), hold_position) / body_scale
-        if reach > config.max_reach_ratio:
-            violations.append(f"reach_exceeded_{reach:.2f}")
+        
+        # Extract climber parameters for personalized reach limits
+        climber_wingspan = _safe_float(current_row.get("climber_wingspan"))
+        climber_height = _safe_float(current_row.get("climber_height"))
+        climber_flexibility = _safe_float(current_row.get("climber_flexibility"))
+        
+        # Get personalized reach ratio
+        max_reach = config.get_adjusted_reach_ratio(
+            climber_wingspan=climber_wingspan,
+            climber_height=climber_height,
+            climber_flexibility=climber_flexibility,
+        )
+        
+        if reach > max_reach:
+            violations.append(f"reach_exceeded_{reach:.2f}_vs_{max_reach:.2f}")
     
     # Check COM inside or near polygon
     if support_points:

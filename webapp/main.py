@@ -75,6 +75,17 @@ class MediaMetadata(BaseModel):
     camera_orientation: str | None = Field(None, description="portrait/landscape/other")
     notes: str | None = Field(None, description="Freeform notes supplied by the climber")
     tags: list[str] = Field(default_factory=list, description="Optional list of search tags")
+    
+    # IMU/Gyroscope sensor data (raw data from mobile device)
+    # Provide either quaternion or euler angles
+    imu_quaternion: list[float] | None = Field(None, description="Device orientation as quaternion [w, x, y, z]", min_length=4, max_length=4)
+    imu_euler_angles: list[float] | None = Field(None, description="Device orientation as Euler angles [pitch, roll, yaw] in degrees", min_length=3, max_length=3)
+    imu_timestamp: float | None = Field(None, description="IMU reading timestamp (unix milliseconds)")
+    
+    # Climber physical parameters (optional, for personalized recommendations)
+    climber_height: float | None = Field(None, description="Climber height in cm", gt=0, le=250)
+    climber_wingspan: float | None = Field(None, description="Climber wingspan (fingertip to fingertip) in cm", gt=0, le=300)
+    climber_flexibility: float | None = Field(None, description="Flexibility score: 0=low, 0.5=average, 1=high", ge=0, le=1.0)
 
 
 class YoloOptions(BaseModel):

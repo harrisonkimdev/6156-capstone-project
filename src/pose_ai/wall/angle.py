@@ -173,4 +173,114 @@ def estimate_wall_angle(
     )
 
 
-__all__ = ["WallAngleResult", "estimate_wall_angle"]
+def quaternion_to_euler(w: float, x: float, y: float, z: float) -> tuple[float, float, float]:
+    """Convert quaternion to Euler angles (pitch, roll, yaw) in degrees.
+    
+    Args:
+        w, x, y, z: Quaternion components
+    
+    Returns:
+        (pitch, roll, yaw) in degrees
+        - pitch: rotation around X axis (-90 to 90 degrees)
+        - roll: rotation around Y axis (-180 to 180 degrees)
+        - yaw: rotation around Z axis (-180 to 180 degrees)
+    """
+    # Roll (x-axis rotation)
+    sinr_cosp = 2.0 * (w * x + y * z)
+    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+    roll = np.arctan2(sinr_cosp, cosr_cosp)
+    
+    # Pitch (y-axis rotation)
+    sinp = 2.0 * (w * y - z * x)
+    if abs(sinp) >= 1:
+        pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
+    else:
+        pitch = np.arcsin(sinp)
+    
+    # Yaw (z-axis rotation)
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = np.arctan2(siny_cosp, cosy_cosp)
+    
+    # Convert to degrees
+    pitch_deg = np.degrees(pitch)
+    roll_deg = np.degrees(roll)
+    yaw_deg = np.degrees(yaw)
+    
+    return pitch_deg, roll_deg, yaw_deg
+
+
+def compute_wall_angle_from_imu(
+    quaternion: list[float] | None = None,
+    euler_angles: list[float] | None = None,
+) -> WallAngleResult:
+    """Compute wall angle from IMU sensor data.
+    
+    Args:
+        quaternion: Device orientation as [w, x, y, z]
+        euler_angles: Device orientation as [pitch, roll, yaw] in degrees
+    
+    Returns:
+        WallAngleResult with angle in degrees (0=horizontal, 90=vertical)
+    
+    Notes:
+        - Assumes device is held with screen facing the wall
+        - Pitch angle represents wall inclination
+        - Positive pitch = wall leaning back (slab/vertical/overhang)
+        - If both quaternion and euler_angles provided, quaternion takes priority
+    """
+    if quaternion is not None:
+        if len(quaternion) != 4:
+            return WallAngleResult(
+                angle_degrees=None,
+                confidence=0.0,
+                method="imu_error",
+                hough_lines=[],
+            )
+        
+        w, x, y, z = quaternion
+        pitch, roll, yaw = quaternion_to_euler(w, x, y, z)
+    
+    elif euler_angles is not None:
+        if len(euler_angles) != 3:
+            return WallAngleResult(
+                angle_degrees=None,
+                confidence=0.0,
+                method="imu_error",
+                hough_lines=[],
+            )
+        
+        pitch, roll, yaw = euler_angles
+    
+    else:
+        return WallAngleResult(
+            angle_degrees=None,
+            confidence=0.0,
+            method="imu_missing",
+            hough_lines=[],
+        )
+    
+    # Wall angle is derived from pitch
+    # Adjust to climbing context: 0° = horizontal, 90° = vertical, >90° = overhang
+    wall_angle = abs(pitch)
+    
+    # Clamp to reasonable range
+    wall_angle = max(0.0, min(180.0, wall_angle))
+    
+    # IMU sensors are generally very reliable (confidence ~0.95-1.0)
+    # Reduce confidence if angles are extreme or unusual
+    confidence = 1.0
+    if roll > 45 or roll < -45:
+        # Device significantly rotated - may not be held properly
+        confidence = 0.7
+    
+    return WallAngleResult(
+        angle_degrees=wall_angle,
+        confidence=confidence,
+        method="imu_sensor",
+        hough_lines=[],
+        pca_angle=None,
+    )
+
+
+__all__ = ["WallAngleResult", "estimate_wall_angle", "compute_wall_angle_from_imu", "quaternion_to_euler"]
