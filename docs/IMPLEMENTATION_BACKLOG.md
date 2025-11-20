@@ -543,25 +543,30 @@ clustered = extract_and_cluster_holds(
 **Completed Implementation**:
 
 1. [x] Transformer encoder implementation (PyTorch)
+
    - `TransformerMultitaskModel` with 2-4 layers, 4-8 heads
    - Positional encoding (sinusoidal and learnable options)
    - Configurable pooling strategies (mean/max/cls)
    - Same dual-head architecture as BiLSTM (efficiency + next-action)
 
 2. [x] Positional encoding for frame sequences
+
    - `PositionalEncoding` class with sinusoidal/learnable modes
    - Automatic sequence length handling
 
 3. [-] TCN implementation (skipped)
+
    - Decision: Transformer provides sufficient comparison baseline
    - Can be added later if needed
 
 4. [x] Unified training pipeline
+
    - `scripts/train_model.py` with `--model-type bilstm/transformer`
    - Full hyperparameter control for both architectures
    - Backward compatibility with `train_bilstm.py` (wrapper)
 
 5. [-] Architecture comparison (pending actual training)
+
    - Infrastructure ready for comparison
    - Requires training on real dataset
    - Can generate performance metrics once trained
@@ -628,17 +633,20 @@ python scripts/evaluate_model.py \
 **Phase 1: IMU Sensor Integration**
 
 - [x] API model extensions (`MediaMetadata` in `webapp/main.py`)
+
   - `imu_quaternion`: Device orientation as quaternion [w, x, y, z]
   - `imu_euler_angles`: Device orientation as Euler angles [pitch, roll, yaw]
   - `imu_timestamp`: IMU reading timestamp
 
 - [x] IMU wall angle computation (`src/pose_ai/wall/angle.py`)
+
   - `quaternion_to_euler()`: Convert quaternion to Euler angles
   - `compute_wall_angle_from_imu()`: Derive wall angle from IMU data
   - Returns `WallAngleResult` with method="imu_sensor"
   - Confidence scoring based on device orientation
 
 - [x] Priority-based angle selection (`src/pose_ai/features/aggregation.py`)
+
   - Priority 1: Pre-computed angle (if provided)
   - Priority 2: IMU sensor data (if available) ← NEW
   - Priority 3: Vision-based estimation (Hough+PCA, fallback)
@@ -651,16 +659,19 @@ python scripts/evaluate_model.py \
 **Phase 2: Climber Physical Parameters**
 
 - [x] API model extensions
+
   - `climber_height`: Height in cm (for body scale normalization)
   - `climber_wingspan`: Wingspan in cm (for reach constraints)
   - `climber_flexibility`: Flexibility score 0-1 (for threshold adjustments)
 
 - [x] Body scale normalization (`src/pose_ai/features/aggregation.py`)
+
   - Compute `body_scale_normalized` using climber height
   - Expected shoulder width = height × 0.16
   - Adjust for different body proportions
 
 - [x] Personalized reach limits (`src/pose_ai/recommendation/planner.py`)
+
   - `PlannerConfig.get_adjusted_reach_ratio()`: Compute personalized reach ratio
   - Wingspan adjustment: ±10% per 0.1 deviation from average wingspan/height ratio
   - Flexibility bonus: 5-10% reach increase for flexible climbers
@@ -708,22 +719,23 @@ POST /api/jobs
 ```
 
 Mobile app (React Native / Flutter):
+
 ```javascript
 // Read IMU sensor
 const { rotation } = await DeviceMotion.getDeviceMotionAsync();
 const quaternion = [rotation.w, rotation.x, rotation.y, rotation.z];
 
 // Send to API
-fetch('/api/jobs', {
-  method: 'POST',
+fetch("/api/jobs", {
+  method: "POST",
   body: JSON.stringify({
     metadata: {
       imu_quaternion: quaternion,
       climber_height: 175,
       climber_wingspan: 180,
-      climber_flexibility: 0.7
-    }
-  })
+      climber_flexibility: 0.7,
+    },
+  }),
 });
 ```
 
@@ -812,25 +824,87 @@ fetch('/api/jobs', {
 
 ---
 
-### P3: Route Difficulty Estimation
+### ✅ P3: Route Difficulty Estimation — COMPLETED
 
-**Target State**:
+**Status**: Fully implemented with feature extraction, XGBoost model, API endpoint, and UI page
 
-- Predict route grade (V0-V10) from video
-- Features: hold density, wall angle, move complexity
-- Integration with climbing gym databases
+**Completed Implementation**:
 
-**Implementation Tasks**:
+1. [x] Feature engineering (`src/pose_ai/ml/route_grading.py`)
+   - Hold density: Holds per square meter
+   - Hold spacing: Mean/median/std/min/max distances
+   - Wall angle: From IMU or vision
+   - Move complexity: Step count, efficiency stats, reach penalties, contact switches
+   - Hold type distribution: Ratios for jug/crimp/sloper/pinch/foot_only/volume
+   - Route length: Vertical distance climbed
+   - Duration: Total climbing time
 
-1. [ ] Annotate training videos with route grades
-2. [ ] Feature engineering: hold spacing, angle distribution, move count
-3. [ ] Train regression model (XGBoost → Neural Network)
-4. [ ] Calibration with gym-specific grade scales
+2. [x] XGBoost regression model
+   - `RouteDifficultyModel` class for prediction (V0-V10)
+   - `predict_with_confidence()` method
+   - Training script: `scripts/train_route_grader.py`
+   - Model parameters: max_depth=6, learning_rate=0.1, early_stopping=10
 
-**Affected Files**:
+3. [x] Gym-specific calibration
+   - `GymGradeCalibration` class
+   - Default mapping: V0-V2 (Beginner), V3-V4 (Intermediate), V5-V6 (Advanced), V7-V8 (Expert), V9-V10 (Elite)
+   - Extensible for custom gym scales
 
-- `src/pose_ai/ml/route_grading.py` (new module)
-- `scripts/train_route_grader.py` (new CLI)
+4. [x] API integration
+   - Endpoint: `GET /api/jobs/{job_id}/route_grade`
+   - Returns: grade, confidence, calibrated_grade, features
+   - Works with completed pipeline jobs
+
+5. [x] New UI page
+   - Route: `/grading`
+   - Clean interface for route selection and grade display
+   - Feature breakdown visualization
+   - Color-coded difficulty indicators
+
+**Completed Tasks**:
+
+- [x] `extract_route_features()` function with 20+ route-level features
+- [x] `RouteDifficultyModel` XGBoost wrapper
+- [x] `GymGradeCalibration` for grade mapping
+- [x] Training script with data loading, train/test split, evaluation metrics
+- [x] API endpoint integration
+- [x] Grading UI page (`webapp/templates/grading.html`)
+- [x] Route handler in `webapp/main.py`
+
+**Files Created**:
+
+- `src/pose_ai/ml/route_grading.py` (feature extraction + model + calibration)
+- `scripts/train_route_grader.py` (training CLI)
+- `webapp/templates/grading.html` (new UI page)
+- `docs/TESTING_GUIDE.md` (comprehensive testing documentation)
+
+**Files Modified**:
+
+- `webapp/main.py` (added `/grading` route and `/api/jobs/{job_id}/route_grade` endpoint)
+
+**Usage**:
+
+```bash
+# Train route grader model
+python scripts/train_route_grader.py \
+  --data data/routes_annotated \
+  --model-out models/route_grader.json \
+  --n-estimators 100
+
+# API endpoint
+GET /api/jobs/{job_id}/route_grade
+
+# UI
+Navigate to http://localhost:8000/grading
+```
+
+**Next Steps** (for actual training):
+
+- Annotate training videos with ground-truth grades (V0-V10)
+- Collect 50+ routes for training dataset
+- Train model: `python scripts/train_route_grader.py --data data/routes_annotated`
+- Evaluate on test set and fine-tune hyperparameters
+- Extend gym calibration mappings for specific gyms
 
 ---
 

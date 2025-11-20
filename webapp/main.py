@@ -121,6 +121,17 @@ async def training_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("training.html", {"request": request, "jobs": jobs})
 
 
+@app.get("/grading", response_class=HTMLResponse)
+async def grading_page(request: Request) -> HTMLResponse:
+    """Route difficulty grading page."""
+    from webapp.jobs import JobStatus
+    jobs = [
+        job.as_dict() for job in job_manager.list_jobs()
+        if job.status == JobStatus.COMPLETED
+    ]
+    return templates.TemplateResponse("grading.html", {"request": request, "jobs": jobs})
+
+
 @app.get("/api/jobs")
 async def list_jobs() -> list[dict[str, object]]:
     return [job.as_dict() for job in job_manager.list_jobs()]
@@ -335,6 +346,131 @@ def get_ml_predictions(job_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+
+@app.get("/api/jobs/{job_id}/route_grade")
+async def get_route_grade(job_id: str):
+    """Get predicted route difficulty grade (V0-V10).
+    
+    Requires completed pipeline job with features, segments, efficiency, and holds.
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed yet")
+    
+    # Find job output directory
+    # Jobs are stored in data/uploads/{job_id} or output_dir from job
+    job_output_dir = ROOT_DIR / "data" / "uploads" / job_id
+    if not job_output_dir.exists():
+        # Try output_dir from job metadata
+        output_dir_str = job.output_dir if hasattr(job, "output_dir") else None
+        if output_dir_str:
+            job_output_dir = Path(output_dir_str)
+        else:
+            raise HTTPException(status_code=404, detail="Job output directory not found")
+    
+    # Load required files
+    import json
+    
+    features_path = job_output_dir / "pose_features.json"
+    efficiency_path = job_output_dir / "step_efficiency.json"
+    holds_path = job_output_dir / "holds.json"
+    
+    if not features_path.exists():
+        raise HTTPException(status_code=404, detail="pose_features.json not found")
+    
+    try:
+        # Load feature rows
+        with open(features_path, "r") as f:
+            feature_rows = json.load(f)
+        
+        # Load step efficiency
+        step_efficiency = []
+        step_segments = []
+        if efficiency_path.exists():
+            with open(efficiency_path, "r") as f:
+                efficiency_data = json.load(f)
+                from pose_ai.recommendation.efficiency import StepEfficiencyResult
+                from pose_ai.segmentation.steps import StepSegment
+                
+                for i, eff_dict in enumerate(efficiency_data):
+                    step_segments.append(StepSegment(
+                        step_id=eff_dict.get("step_id", i),
+                        start_index=0,
+                        end_index=0,
+                        start_time=eff_dict.get("start_time", 0.0),
+                        end_time=eff_dict.get("end_time", 0.0),
+                        label=eff_dict.get("label", "unknown"),
+                    ))
+                    step_efficiency.append(StepEfficiencyResult(
+                        step_id=eff_dict.get("step_id", i),
+                        score=eff_dict.get("score", 0.0),
+                        components=eff_dict.get("components", {}),
+                        start_time=eff_dict.get("start_time", 0.0),
+                        end_time=eff_dict.get("end_time", 0.0),
+                    ))
+        
+        # Load holds
+        holds = []
+        if holds_path.exists():
+            with open(holds_path, "r") as f:
+                holds_data = json.load(f)
+                if isinstance(holds_data, dict):
+                    holds = list(holds_data.values())
+                elif isinstance(holds_data, list):
+                    holds = holds_data
+        
+        # Extract wall angle
+        wall_angle = None
+        for row in feature_rows:
+            angle = row.get("wall_angle")
+            if angle is not None:
+                wall_angle = float(angle)
+                break
+        
+        # Extract route features
+        from pose_ai.ml.route_grading import extract_route_features, RouteDifficultyModel, GymGradeCalibration
+        
+        route_features = extract_route_features(
+            feature_rows=feature_rows,
+            step_segments=step_segments,
+            step_efficiency=step_efficiency,
+            holds=holds,
+            wall_angle=wall_angle,
+        )
+        
+        # Predict grade
+        model_path = ROOT_DIR / "models" / "route_grader.json"
+        if model_path.exists():
+            model = RouteDifficultyModel(model_path=model_path)
+            grade, confidence = model.predict_with_confidence(route_features)
+            
+            # Calibrate to gym scale
+            calibration = GymGradeCalibration()
+            calibrated_grade = calibration.calibrate(grade)
+        else:
+            # No model available - return features only
+            grade = None
+            confidence = 0.0
+            calibrated_grade = None
+        
+        return {
+            "job_id": job_id,
+            "grade": grade,
+            "confidence": confidence,
+            "calibrated_grade": calibrated_grade,
+            "features": route_features,
+        }
+    
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Required packages not available: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Route grading failed: {str(e)}")
 
 
 @app.middleware("http")
