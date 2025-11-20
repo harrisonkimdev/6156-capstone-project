@@ -19,6 +19,10 @@
 9. [Notebook Usage](#notebook-usage)
 10. [Limitations & Known Issues](#limitations--known-issues)
 11. [Future Work](#future-work)
+12. [References](#references)
+13. [Appendix A: Efficiency Calculation Specification](#appendix-a-efficiency-calculation-specification)
+14. [Appendix B: Project Roadmap](#appendix-b-project-roadmap)
+15. [Appendix C: Testing Guide](#appendix-c-testing-guide)
 
 ---
 
@@ -1220,13 +1224,223 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 
 ## References
 
-- **Authoritative Spec**: [`efficiency_calculation.md`](efficiency_calculation.md) — Complete algorithm specifications
-- **Implementation Backlog**: [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) — Prioritized feature roadmap
-- **Original Roadmap**: [`beta_model_plan.md`](beta_model_plan.md) — High-level project phases
+- **Implementation Backlog**: [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) — Detailed feature roadmap and implementation status
 - **Source Code**: [`src/pose_ai/`](../src/pose_ai/) — Core library modules
 - **Scripts**: [`scripts/`](../scripts/) — CLI tools for pipeline stages
 - **Web Application**: [`webapp/`](../webapp/) — FastAPI server and UI
 - **Tests**: [`tests/unit/`](../tests/unit/) — Unit test suite
+
+**Note**: The following documents have been consolidated into this guide:
+- `efficiency_calculation.md` → See [Appendix A: Efficiency Calculation Specification](#appendix-a-efficiency-calculation-specification)
+- `beta_model_plan.md` → See [Appendix B: Project Roadmap](#appendix-b-project-roadmap)
+- `TESTING_GUIDE.md` → See [Appendix C: Testing Guide](#appendix-c-testing-guide)
+
+---
+
+## Appendix A: Efficiency Calculation Specification
+
+**Source**: Consolidated from `efficiency_calculation.md` (authoritative specification)
+
+### Purpose
+
+Compute **move/step-level efficiency** and use it to power **next-action recommendations**.
+
+**Input**: Uploaded bouldering video → frame sequence with MediaPipe keypoints, hold locations, optional wall calibration  
+**Output**: Step-level efficiency score (0–1) and diagnostic metrics
+
+### Contact Inference Algorithm
+
+Contact is determined by **distance**, **velocity**, and **temporal hysteresis**.
+
+1. **Distance Threshold**: `d(J,H) ≤ r_th` where `r_th = k_r × body_scale` (recommend 0.25–0.35 × shoulder width)
+2. **Velocity Condition**: `|v_J| ≤ v_hold` where `v_hold = k_v × body_scale / fps` (recommend 0.02–0.05)
+3. **Hysteresis**: Dual thresholds `r_on < r_off` to reduce flicker
+   - **On**: `d ≤ r_on` AND `|v| ≤ v_hold`
+   - **Stay on**: `d ≤ r_off`
+4. **Minimum Duration**: Enforce `min_on_frames ≥ 3` for confirmed contact
+5. **Smear Detection**: Foot near wall (`|z_foot − z_wall| ≤ z_eps`), no hold within `r_smear`, low speed
+6. **Technique Patterns**: Bicycle, back-flag, drop-knee detection with confidence scores (0–1)
+
+**Constants**:
+- `r_on = 0.22 × body_scale`
+- `r_off = 0.28 × body_scale`
+- `v_hold = 0.03 × body_scale/fps`
+- `min_on_frames = 3`
+- `z_eps = 0.03` (smear detection)
+
+### Efficiency Formula (7 Components)
+
+**Frame-level computation, aggregated to step-level**:
+
+```
+score_eff = w1*stab + w4*eff_path 
+            - (pen_support + pen_wall + pen_jerk + pen_reach)
+            + technique_bonus
+```
+
+**Component Details**:
+
+1. **Support Polygon Stability** (w1=0.35):
+   - Build convex hull from contact points
+   - Compute `dist(COM, polygon)` normalized by body_scale
+   - `stab = exp(-α × dist_normalized)` where α=4.0
+
+2. **Support Count/Switch Penalties** (w2=0.20):
+   - Strong penalty if `n_support < 2`
+   - Penalty for frequent contact switching
+
+3. **Wall-Body Distance Penalty** (w3=0.10):
+   - `pen_wall = w3 × ReLU(z_COM - z_ref)`
+   - Proxy for forearm load
+
+4. **Path Efficiency** (w4=0.25):
+   - `net_disp = ||COM_end - COM_start||`
+   - `path_len = Σ||COM_t - COM_{t-1}||`
+   - `eff_path = clamp(net_disp / (path_len + ε), 0, 1)`
+
+5. **Smoothness Penalty** (w5=0.07):
+   - Mean normalized jerk for COM and key limbs
+   - Direction change penalties
+
+6. **Reach-Limit Penalty** (w6=0.03):
+   - Penalize extreme limb extensions
+   - `pen_reach = w6 × max(0, reach_norm - τ_reach)`
+   - Personalized based on climber flexibility
+
+7. **Technique Bonuses**:
+   - Bicycle: 0.05 × confidence
+   - Back-flag: 0.05 × confidence
+   - Drop-knee: 0.03 × confidence
+
+**Step Aggregation**: Weighted mean of frame scores (or top-quantile)
+
+### Step Segmentation
+
+- Split on confirmed contact changes (limb changes hold)
+- Priority: Single-limb change while others maintain support
+- Duration constraints: 0.2s ≤ step_duration ≤ 4s
+- Segment labels: Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish
+
+### Data Representation
+
+**Frame-Level Features**:
+- Keypoints: Shoulders, elbows, wrists, hips, knees, ankles (normalized, root-relative)
+- Kinematic derivatives: Velocity, acceleration, jerk
+- COM: Center of mass position, velocity, acceleration
+- Contact states: Per-limb contact (on/off, hold_id, type)
+- Technique scores: Bicycle, back-flag, drop-knee confidence
+
+**Normalization**:
+- Root-relative: Subtract hip center from all joints
+- Scale normalization: Divide by body reference (shoulder width)
+- View normalization: Optional homography to wall coordinate system
+
+---
+
+## Appendix B: Project Roadmap
+
+**Source**: Consolidated from `beta_model_plan.md`
+
+### Implementation Status (November 2025)
+
+**✅ Completed Features**:
+- Hold Detection: YOLOv8n/m with DBSCAN clustering and temporal tracking
+- Wall Angle: IMU sensor integration (±1° accuracy) with vision fallback
+- Efficiency Scoring: 7-component physics-based metric with technique bonuses
+- Step Segmentation: Contact-based with duration constraints and labels
+- Next-Action Recommendations: Rule-based planner v1 with hold type awareness
+- Hold Type Classification: YOLOv8 fine-tuning infrastructure
+- BiLSTM Multitask Model: Full training/evaluation/inference pipeline
+- Transformer Multitask Model: Alternative architecture with model selection
+- IMU Sensor Integration: Device orientation for accurate wall angle
+- Climber Personalization: Height, wingspan, flexibility parameters
+- Route Difficulty Estimation: XGBoost model for V0-V10 prediction
+
+**🔄 In Progress**:
+- Model training on real climbing data
+- Performance comparison: BiLSTM vs Transformer
+
+**📋 Planned**:
+- Production infrastructure (CI/CD, monitoring)
+- Advanced wall calibration (RANSAC, multi-view)
+- Climber profiling database (external app integration)
+
+### Development Phases
+
+**Phase 1**: Core pipeline (✅ Completed)
+- Frame extraction, pose estimation, hold detection
+- Basic efficiency scoring and recommendations
+
+**Phase 2**: Advanced features (✅ Completed)
+- Advanced contact inference, step segmentation
+- Full efficiency formula, rule-based planner
+- Hold type classification, ML models
+
+**Phase 3**: Personalization & grading (✅ Completed)
+- IMU sensor integration
+- Climber personalization
+- Route difficulty estimation
+
+**Phase 4**: Production readiness (🔄 Planned)
+- CI/CD pipeline
+- Monitoring and logging
+- Model registry and versioning
+
+See [IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md) for detailed task breakdown.
+
+---
+
+## Appendix C: Testing Guide
+
+**Source**: Consolidated from `TESTING_GUIDE.md`
+
+### Overview
+
+Comprehensive testing documentation for all pipeline steps. Each step includes input/output specifications, validation criteria, and test cases.
+
+### Pipeline Steps
+
+1. **Frame Extraction**: Extract frames at intervals, validate timestamps and image quality
+2. **Pose Estimation**: MediaPipe landmarks, validate detection scores and coordinate ranges
+3. **Hold Detection**: YOLO detection + clustering, validate hold count and positions
+4. **Feature Extraction**: Frame-level features, validate feature completeness and temporal consistency
+5. **Step Segmentation**: Contact-based segmentation, validate duration constraints and labels
+6. **Efficiency Scoring**: Step-level scores, validate component values and score ranges
+7. **ML Model Inference**: BiLSTM/Transformer predictions, validate efficiency and action outputs
+8. **Route Grading**: V0-V10 prediction, validate feature extraction and grade ranges
+
+### Test Data Requirements
+
+- Sample videos: Short (5-10s), normal (30-60s), long (2+ min)
+- Known difficulty routes: V3, V5, V7 for validation
+- Edge cases: No holds, single frame, extreme angles, occlusion
+
+### Validation Criteria
+
+Each step has specific validation criteria:
+- **Frame Extraction**: Frame count, sequential timestamps, readable images
+- **Pose Estimation**: 33 landmarks per frame, valid coordinates, detection scores
+- **Hold Detection**: Hold count > 0, valid coordinates, confidence scores
+- **Feature Extraction**: Feature completeness, value ranges, temporal consistency
+- **Step Segmentation**: Duration constraints, valid labels, no overlaps
+- **Efficiency Scoring**: Score ranges, component completeness, temporal smoothness
+- **ML Inference**: Prediction ranges, probability distributions, frame indices
+- **Route Grading**: Grade range [0-10], feature completeness, confidence scores
+
+### Running Tests
+
+```bash
+# Unit tests
+pytest tests/unit/
+
+# Integration tests
+python scripts/run_pipeline.py test_data/sample_climb.mp4 --out test_output
+
+# Manual testing via web UI
+# Navigate to http://localhost:8000
+```
+
+**See [TESTING_GUIDE.md](TESTING_GUIDE.md) for complete test case specifications and detailed input/output formats.**
 
 ---
 
