@@ -61,7 +61,7 @@ This system analyzes bouldering climbing videos to:
 - **Web**: FastAPI, Uvicorn, Jinja2
 - **Storage**: Local filesystem + optional Google Cloud Storage
 - **Testing**: pytest
-- **Documentation**: See [TESTING_GUIDE.md](TESTING_GUIDE.md) for comprehensive testing specifications
+- **Documentation**: See [TESTING_GUIDE.md](archive/TESTING_GUIDE.md) for comprehensive testing specifications
 
 ---
 
@@ -1233,7 +1233,7 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 **Note**: The following documents have been consolidated into this guide:
 - `efficiency_calculation.md` → See [Appendix A: Efficiency Calculation Specification](#appendix-a-efficiency-calculation-specification)
 - `beta_model_plan.md` → See [Appendix B: Project Roadmap](#appendix-b-project-roadmap)
-- `TESTING_GUIDE.md` → See [Appendix C: Testing Guide](#appendix-c-testing-guide)
+- `archive/TESTING_GUIDE.md` → See [Appendix C: Testing Guide](#appendix-c-testing-guide)
 
 ---
 
