@@ -1571,7 +1571,7 @@ python scripts/run_pipeline.py test_data/sample_climb.mp4 --out test_output
 # Navigate to http://localhost:8000
 ```
 
-**See [TESTING_GUIDE.md](TESTING_GUIDE.md) for complete test case specifications and detailed input/output formats.**
+**See [TESTING_GUIDE.md](archive/TESTING_GUIDE.md) for complete test case specifications and detailed input/output formats.**
 
 ---
 
