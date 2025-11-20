@@ -99,14 +99,37 @@ class YoloOptions(BaseModel):
     device: str | None = Field(None, description="Optional torch device string")
 
 
+class SegmentationOptions(BaseModel):
+    enabled: bool = Field(False, description="Enable YOLO segmentation")
+    method: str = Field("yolo", description="Segmentation method: 'yolo' or 'none'")
+    model_name: str = Field("yolov8n-seg.pt", description="YOLO segmentation model name")
+    export_masks: bool = Field(True, description="Export segmentation masks as images")
+    group_by_color: bool = Field(True, description="Group holds by color to identify routes")
+    hue_tolerance: int = Field(10, ge=0, le=90, description="Hue tolerance for color grouping")
+    sat_tolerance: int = Field(50, ge=0, le=255, description="Saturation tolerance for color grouping")
+    val_tolerance: int = Field(50, ge=0, le=255, description="Value tolerance for color grouping")
+
+
+class FrameExtractionOptions(BaseModel):
+    method: str = Field("interval", description="Extraction method: 'interval', 'motion', or 'motion_pose'")
+    motion_threshold: float = Field(5.0, ge=0.0, description="Minimum motion score for motion-based extraction")
+    similarity_threshold: float = Field(0.8, ge=0.0, le=1.0, description="Maximum pose similarity (lower = more diverse)")
+    min_frame_interval: int = Field(5, ge=1, description="Minimum frames between selections")
+    use_optical_flow: bool = Field(True, description="Use optical flow for motion detection")
+    use_pose_similarity: bool = Field(True, description="Use pose similarity for frame selection")
+    initial_sampling_rate: float = Field(0.1, gt=0, description="Initial frame sampling rate in seconds for motion extraction")
+
+
 class PipelineRequest(BaseModel):
     video_dir: str = Field(..., description="Directory containing source videos")
     output_dir: str = Field("data/frames", description="Directory to write pipeline artifacts")
-    interval: float = Field(1.0, gt=0, description="Frame extraction interval in seconds")
+    interval: float = Field(1.0, gt=0, description="Frame extraction interval in seconds (used for 'interval' method)")
     skip_visuals: bool = Field(False, description="Disable OpenCV visual overlays")
     source_uri: str | None = Field(None, description="Optional GCS URI referencing the uploaded video")
     metadata: MediaMetadata | None = Field(None, description="Optional capture metadata")
     yolo: YoloOptions = Field(default_factory=YoloOptions)
+    segmentation: SegmentationOptions = Field(default_factory=SegmentationOptions)
+    frame_extraction: FrameExtractionOptions = Field(default_factory=FrameExtractionOptions)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -161,6 +184,9 @@ async def create_job(payload: PipelineRequest, background_tasks: BackgroundTasks
     if payload.source_uri:
         metadata_payload = dict(metadata_payload)
         metadata_payload["source_uri"] = payload.source_uri
+    # Add segmentation and frame extraction options to metadata
+    metadata_payload["segmentation_options"] = payload.segmentation.dict()
+    metadata_payload["frame_extraction_options"] = payload.frame_extraction.dict()
     metadata_payload = metadata_payload or None
     job = job_manager.create_job(
         video_dir=payload.video_dir,

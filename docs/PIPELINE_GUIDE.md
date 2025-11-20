@@ -1335,6 +1335,137 @@ score_eff = w1*stab + w4*eff_path
 - Scale normalization: Divide by body reference (shoulder width)
 - View normalization: Optional homography to wall coordinate system
 
+### JSON Data Schemas
+
+**FrameFeature** (frame-level feature structure):
+
+```json
+{
+  "t": 123,
+  "keypoints": {
+    "wrist_l": {"x":0.12,"y":0.34,"z":-0.01,"vis":0.9},
+    "wrist_r": {"x":..., "y":..., "z":..., "vis":...},
+    "hip_c":   {"x":..., "y":..., "z":..., "vis":...},
+    "ankle_l": {...}, "ankle_r": {...}, "shoulder_l": {...}
+  },
+  "derived": {
+    "v": {"wrist_l": [vx,vy,vz], ...},
+    "a": {"wrist_l": [ax,ay,az], ...},
+    "com": {"x":..., "y":..., "z":...}
+  },
+  "contacts": {
+    "LH": {"type":"hold","id":12,"conf":0.86},
+    "RF": {"type":"smear","id":null,"conf":0.73}
+  },
+  "techniques": {"bicycle":0.2, "back_flag":0.6, "drop_knee":0.1},
+  "meta": {"fps":25, "body_scale":0.42}
+}
+```
+
+**StepLabel** (for training/annotation):
+
+```json
+{
+  "video_id": "...",
+  "step_id": 7,
+  "t_start": 210, "t_end": 260,
+  "efficiency_score": 0.78,
+  "next_action": {
+    "limb": "RH",
+    "target": {"type":"cluster","cid":3}
+  },
+  "notes": "mild back-flag, 3-point support"
+}
+```
+
+### Additional Constants & Thresholds
+
+**Temporal**:
+- `fps = 25` (recommended frame rate)
+- Step duration: `0.2s ≤ len ≤ 4s`
+- Min contact duration: `min_on_frames = 3`
+
+**Spatial** (normalized by body_scale):
+- Distance thresholds: `r_on = 0.22`, `r_off = 0.28`
+- Velocity threshold: `v_hold = 0.03` (× body_scale/fps)
+- Smear detection: `z_eps = 0.03`, `r_smear = 0.25`
+- Technique angles: `θ_bicycle ≈ 60°`, `θ_backflag ≈ 50°`
+
+**Efficiency Weights** (initial values, tune empirically):
+- `w1=0.35` (stability), `w2=0.20` (support), `w3=0.10` (wall distance)
+- `w4=0.25` (path efficiency), `w5=0.07` (smoothness), `w6=0.03` (reach)
+
+### Pseudocode
+
+**Efficiency Computation**:
+
+```python
+for each step in steps:
+    scores = []
+    for frame in step.frames:
+        P = support_polygon(frame.contacts)
+        stab = stability(COM(frame), P)               # exp(-α·dist)
+        n = num_support(frame.contacts)
+        pen_support = w2 * int(n < 2) + pen_switch(frame)
+        pen_wall = w3 * relu(COM(frame).z - z_ref)
+        eff_path_frame = net_over_path(frame_window(COM_history))
+        pen_jerk = w5 * mean_norm_jerk(frame)
+        pen_reach = w6 * max(0, reach_norm(frame) - τ_reach)
+        score = w1*stab + w4*eff_path_frame - (pen_support+pen_wall+pen_jerk+pen_reach)
+        scores.append(score)
+    step_score = aggregate(scores)   # mean or top-quantile
+    output(step_id, step_score, diagnostics)
+```
+
+**Contact Filter** (with continuity & velocity):
+
+```python
+def decide_contact(prev_state, joint_pos, joint_vel, holds, params):
+    h_star, d_star = nearest_hold(joint_pos, holds)
+    on = prev_state.on
+
+    if not on:
+        if d_star <= params.r_on and norm(joint_vel) <= params.v_hold:
+            on = True; hold_id = h_star
+    else:
+        if d_star > params.r_off:
+            on = False; hold_id = None
+        else:
+            hold_id = prev_state.hold_id if prev_state.hold_id is not None else h_star
+
+    on = enforce_min_duration(on, prev_state.buffer, params.min_on_frames)
+    return ContactState(on, hold_id)
+```
+
+### Calibration & Preprocessing
+
+**FPS Normalization**: Resample video to 25fps (25–30 recommended)
+
+**Wall Plane Calibration**: 
+- One-time calibration (click wall corners → homography) to estimate wall coordinates
+- Alternative: IMU sensor integration for automatic wall angle (±1° accuracy)
+
+**Hold Detection**: 
+- Start with manual/semi-auto labels
+- YOLO/segmentation for automated detection (YOLOv8n/m with DBSCAN clustering)
+
+### Risks & Assumptions
+
+- **MediaPose z-coordinate**: Relative depth only, not absolute. Wall distance requires calibration or learned proxy.
+- **Viewpoint Sensitivity**: Strong angle changes reduce generalization. Recommend fixed camera position and capture guidelines.
+- **Hold Detection**: May be manual at first. Plan staged automation with YOLO fine-tuning.
+
+### Training Pipeline (v1)
+
+1. **Preprocess**: Unify fps → extract pose → normalize + derivatives → contact/smear inference → step segmentation.
+2. **Weak Labels**: Create efficiency labels from heuristics (7-component formula) for initial supervision.
+3. **Dataset**: Sliding windows (T=32, stride=1) + targets (efficiency score, next-action).
+4. **Model**: BiLSTM (2 layers, 128) + attention; Head1=Huber, Head2=CE.
+5. **Evaluation**: MAE/R² (efficiency), top-1/top-3 (next action), ablations (metrics/filters on/off).
+6. **Visualization**: Overlay contacts/COM/polygon/recommendation arrows.
+
+**See [Machine Learning](#machine-learning) section for detailed implementation.**
+
 ---
 
 ## Appendix B: Project Roadmap

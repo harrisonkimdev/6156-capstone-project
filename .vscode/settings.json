@@ -10,7 +10,7 @@
       "args": [
         "-l",
         "-c",
-        "conda activate 6156-capstone && exec zsh"
+        "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate 6156-capstone && exec zsh"
       ]
     }
   },

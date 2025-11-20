@@ -15,7 +15,11 @@ if str(SRC_DIR) not in sys.path:
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from pose_ai.data import extract_frames_every_n_seconds, iter_video_files  # type: ignore  # pylint: disable=wrong-import-position
+from pose_ai.data import (  # type: ignore  # pylint: disable=wrong-import-position
+    extract_frames_every_n_seconds,
+    extract_frames_with_motion,
+    iter_video_files,
+)
 from pose_ai.service import (  # type: ignore  # pylint: disable=wrong-import-position
     estimate_poses_from_manifest,
     export_features_for_manifest,
@@ -86,6 +90,8 @@ def run_pipeline_stage(
     interval: float,
     skip_visuals: bool,
     yolo_options: dict[str, object] | None = None,
+    segmentation_options: dict[str, object] | None = None,
+    frame_extraction_options: dict[str, object] | None = None,
     log: Callable[[str], None],
 ) -> Tuple[List[str], List[dict[str, str]], List[dict[str, object]]]:
     video_dir = video_dir.expanduser().resolve()
@@ -103,21 +109,111 @@ def run_pipeline_stage(
             imgsz=int(yolo_config.get("imgsz") or 640),
         )
 
+    # Determine frame extraction method
+    extraction_config = frame_extraction_options or {}
+    extraction_method = str(extraction_config.get("method", "interval")).lower()
+
     manifests: list[Path] = []
     for index, video_path in enumerate(iter_video_files(video_dir)):
-        log(f"[{index + 1}] Extracting frames from {video_path.name}")
-        result = extract_frames_every_n_seconds(
-            video_path,
-            interval_seconds=interval,
-            output_root=output_dir,
-            write_manifest=True,
-            overwrite=False,
-        )
+        log(f"[{index + 1}] Extracting frames from {video_path.name} (method: {extraction_method})")
+        
+        if extraction_method in ("motion", "motion_pose"):
+            # Use advanced motion-based extraction
+            result = extract_frames_with_motion(
+                video_path,
+                output_root=output_dir,
+                motion_threshold=float(extraction_config.get("motion_threshold", 5.0)),
+                similarity_threshold=float(extraction_config.get("similarity_threshold", 0.8)),
+                min_frame_interval=int(extraction_config.get("min_frame_interval", 5)),
+                use_optical_flow=bool(extraction_config.get("use_optical_flow", True)),
+                use_pose_similarity=bool(extraction_config.get("use_pose_similarity", True)) and extraction_method == "motion_pose",
+                initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
+                write_manifest=True,
+                overwrite=False,
+            )
+        else:
+            # Use interval-based extraction (default)
+            result = extract_frames_every_n_seconds(
+                video_path,
+                interval_seconds=interval,
+                output_root=output_dir,
+                write_manifest=True,
+                overwrite=False,
+            )
+        
         if result.manifest_path is None:
             raise RuntimeError(f"Manifest not written for {video_path}")
         log(f"Saved {result.saved_frames} frames to {result.frame_directory}")
         _maybe_upload_raw_video(job, result.video_path, log)
         manifest_path = result.manifest_path
+        
+        # Run segmentation if enabled
+        seg_config = segmentation_options or {}
+        if bool(seg_config.get("enabled", False)):
+            try:
+                from pose_ai.segmentation.yolo_segmentation import (  # type: ignore
+                    YoloSegmentationModel,
+                    export_segmentation_masks,
+                    extract_hold_colors,
+                    cluster_holds_by_color,
+                    export_routes_json,
+                )
+                
+                log("Running YOLO segmentation...")
+                frame_dir = manifest_path.parent
+                image_paths = sorted([p for p in frame_dir.glob("*.jpg")])
+                
+                if image_paths:
+                    seg_model = YoloSegmentationModel(
+                        model_name=str(seg_config.get("model_name", "yolov8n-seg.pt")),
+                        device=yolo_config.get("device") if yolo_config else None,
+                        imgsz=int(yolo_config.get("imgsz", 640)) if yolo_config else 640,
+                    )
+                    
+                    seg_results = seg_model.batch_segment_frames(
+                        image_paths,
+                        conf_threshold=float(yolo_config.get("min_confidence", 0.25)) if yolo_config else 0.25,
+                        target_classes=["wall", "hold", "climber", "person"],
+                    )
+                    
+                    if bool(seg_config.get("export_masks", True)):
+                        export_segmentation_masks(seg_results, frame_dir, export_images=True, export_json=True)
+                        log(f"Exported segmentation masks to {frame_dir / 'masks'}")
+                    
+                    # Color-based route grouping if enabled
+                    if bool(seg_config.get("group_by_color", True)):
+                        try:
+                            from pose_ai.service.hold_extraction import detect_holds  # type: ignore
+                            
+                            # Detect holds first
+                            hold_detections = detect_holds(
+                                image_paths,
+                                model_name=str(yolo_config.get("model_name", "yolov8n.pt")) if yolo_config else "yolov8n.pt",
+                                device=yolo_config.get("device") if yolo_config else None,
+                            )
+                            
+                            if hold_detections:
+                                # Extract colors
+                                color_infos = extract_hold_colors(hold_detections, image_paths, segmentation_results=seg_results)
+                                
+                                if color_infos:
+                                    # Cluster by color
+                                    routes = cluster_holds_by_color(
+                                        color_infos,
+                                        hue_tolerance=int(seg_config.get("hue_tolerance", 10)),
+                                        sat_tolerance=int(seg_config.get("sat_tolerance", 50)),
+                                        val_tolerance=int(seg_config.get("val_tolerance", 50)),
+                                    )
+                                    
+                                    if routes:
+                                        routes_path = export_routes_json(routes, frame_dir / "routes.json")
+                                        job.add_artifact("routes", _to_repo_url(routes_path) or str(routes_path))
+                                        log(f"Grouped {len(routes)} routes by color → {routes_path.name}")
+                        except Exception as exc:
+                            log(f"Color-based route grouping failed: {exc}")
+            except Exception as exc:
+                log(f"Segmentation failed: {exc}")
+        
         if yolo_enabled:
             selection = annotate_manifest_with_yolo(
                 manifest_path,
@@ -255,6 +351,10 @@ def execute_job(job: PipelineJob) -> None:
     job.start()
     job.log("Pipeline execution started")
     try:
+        # Extract options from job metadata or use defaults
+        segmentation_options = getattr(job, "segmentation_options", None) or job.metadata.get("segmentation_options") if job.metadata else None
+        frame_extraction_options = getattr(job, "frame_extraction_options", None) or job.metadata.get("frame_extraction_options") if job.metadata else None
+        
         manifests, visualizations, pose_samples = run_pipeline_stage(
             job=job,
             video_dir=Path(job.video_dir),
@@ -262,6 +362,8 @@ def execute_job(job: PipelineJob) -> None:
             interval=job.interval,
             skip_visuals=job.skip_visuals,
             yolo_options=job.yolo_options,
+            segmentation_options=segmentation_options,
+            frame_extraction_options=frame_extraction_options,
             log=job.log,
         )
     except Exception as exc:  # pragma: no cover
