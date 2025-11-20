@@ -473,6 +473,298 @@ async def get_route_grade(job_id: str):
         raise HTTPException(status_code=500, detail=f"Route grading failed: {str(e)}")
 
 
+# Testing API endpoints for individual step execution
+TEST_OUTPUT_ROOT = ROOT_DIR / "data" / "test_outputs"
+
+
+class TestExtractFramesRequest(BaseModel):
+    video_file: str = Field(..., description="Path to video file or upload ID")
+    interval: float = Field(1.0, gt=0, description="Frame extraction interval in seconds")
+    output_dir: str | None = Field(None, description="Output directory (auto-generated if not provided)")
+
+
+@app.post("/api/test/extract-frames", response_class=JSONResponse)
+async def test_extract_frames(payload: TestExtractFramesRequest) -> dict[str, object]:
+    """Test frame extraction step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.data import extract_frames_every_n_seconds
+    
+    video_path = Path(payload.video_file)
+    if not video_path.exists():
+        # Try as upload ID
+        upload_path = UPLOAD_ROOT / payload.video_file
+        if upload_path.exists():
+            # Find video file in upload directory
+            video_files = list(upload_path.glob("*.mp4")) + list(upload_path.glob("*.avi")) + list(upload_path.glob("*.mov"))
+            if video_files:
+                video_path = video_files[0]
+            else:
+                raise HTTPException(status_code=404, detail=f"Video file not found: {payload.video_file}")
+        else:
+            raise HTTPException(status_code=404, detail=f"Video file not found: {payload.video_file}")
+    
+    output_dir = Path(payload.output_dir) if payload.output_dir else _ensure_directory(TEST_OUTPUT_ROOT / uuid4().hex)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        result = extract_frames_every_n_seconds(
+            video_path,
+            interval_seconds=payload.interval,
+            output_root=output_dir,
+            write_manifest=True,
+            overwrite=False,
+        )
+        
+        manifest_data = None
+        if result.manifest_path and result.manifest_path.exists():
+            import json
+            manifest_data = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "output_dir": str(output_dir),
+            "manifest_path": str(result.manifest_path) if result.manifest_path else None,
+            "saved_frames": result.saved_frames,
+            "manifest": manifest_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Frame extraction failed")
+        raise HTTPException(status_code=500, detail=f"Frame extraction failed: {str(e)}")
+
+
+class TestDetectHoldsRequest(BaseModel):
+    frame_dir: str = Field(..., description="Directory containing frame images")
+    model_name: str = Field("yolov8n.pt", description="YOLO model name")
+    device: str | None = Field(None, description="Device (cpu/cuda:0)")
+    eps: float = Field(0.03, description="DBSCAN epsilon")
+    min_samples: int = Field(3, description="DBSCAN min_samples")
+    use_tracking: bool = Field(True, description="Use temporal tracking")
+
+
+@app.post("/api/test/detect-holds", response_class=JSONResponse)
+async def test_detect_holds(payload: TestDetectHoldsRequest) -> dict[str, object]:
+    """Test hold detection step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.hold_extraction import extract_and_cluster_holds, export_holds_json
+    
+    frame_dir = Path(payload.frame_dir)
+    if not frame_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Frame directory not found: {payload.frame_dir}")
+    
+    image_paths = sorted(frame_dir.glob("*.jpg")) + sorted(frame_dir.glob("*.png"))
+    if not image_paths:
+        raise HTTPException(status_code=400, detail=f"No image files found in {payload.frame_dir}")
+    
+    try:
+        clustered = extract_and_cluster_holds(
+            image_paths,
+            model_name=payload.model_name,
+            device=payload.device,
+            eps=payload.eps,
+            min_samples=payload.min_samples,
+            use_tracking=payload.use_tracking,
+        )
+        
+        output_path = frame_dir / "holds.json"
+        if clustered:
+            export_holds_json(clustered, output_path=output_path)
+            holds_data = {hold.hold_id: hold.as_dict() for hold in clustered}
+        else:
+            holds_data = {}
+        
+        return {
+            "status": "success",
+            "holds_path": str(output_path),
+            "holds_count": len(clustered),
+            "holds": holds_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Hold detection failed")
+        raise HTTPException(status_code=500, detail=f"Hold detection failed: {str(e)}")
+
+
+class TestEstimateWallAngleRequest(BaseModel):
+    image_path: str = Field(..., description="Path to representative frame image")
+    hold_centers: list[list[float]] | None = Field(None, description="Optional hold centers [[x, y], ...]")
+
+
+@app.post("/api/test/estimate-wall-angle", response_class=JSONResponse)
+async def test_estimate_wall_angle(payload: TestEstimateWallAngleRequest) -> dict[str, object]:
+    """Test wall angle estimation step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.wall.angle import estimate_wall_angle
+    
+    image_path = Path(payload.image_path)
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail=f"Image file not found: {payload.image_path}")
+    
+    hold_centers = None
+    if payload.hold_centers:
+        hold_centers = [tuple(center) for center in payload.hold_centers]
+    
+    try:
+        result = estimate_wall_angle(image_path, hold_centers=hold_centers)
+        return {
+            "status": "success",
+            "result": result.as_dict(),
+        }
+    except Exception as e:
+        LOGGER.exception("Wall angle estimation failed")
+        raise HTTPException(status_code=500, detail=f"Wall angle estimation failed: {str(e)}")
+
+
+class TestEstimatePoseRequest(BaseModel):
+    manifest_path: str = Field(..., description="Path to manifest.json")
+
+
+@app.post("/api/test/estimate-pose", response_class=JSONResponse)
+async def test_estimate_pose(payload: TestEstimatePoseRequest) -> dict[str, object]:
+    """Test pose estimation step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.pose_service import estimate_poses_from_manifest
+    
+    manifest_path = Path(payload.manifest_path)
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"Manifest file not found: {payload.manifest_path}")
+    
+    try:
+        frames = estimate_poses_from_manifest(manifest_path, save_json=True)
+        
+        pose_results_path = manifest_path.parent / "pose_results.json"
+        pose_data = None
+        if pose_results_path.exists():
+            import json
+            pose_data = json.loads(pose_results_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "pose_results_path": str(pose_results_path),
+            "frames_processed": len(frames),
+            "pose_results": pose_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Pose estimation failed")
+        raise HTTPException(status_code=500, detail=f"Pose estimation failed: {str(e)}")
+
+
+class TestExtractFeaturesRequest(BaseModel):
+    manifest_path: str = Field(..., description="Path to manifest.json")
+    holds_path: str | None = Field(None, description="Optional path to holds.json")
+    auto_wall_angle: bool = Field(True, description="Auto-estimate wall angle")
+    climber_height: float | None = Field(None, description="Climber height in cm")
+    climber_wingspan: float | None = Field(None, description="Climber wingspan in cm")
+    climber_flexibility: float | None = Field(None, description="Climber flexibility (0-1)")
+
+
+@app.post("/api/test/extract-features", response_class=JSONResponse)
+async def test_extract_features(payload: TestExtractFeaturesRequest) -> dict[str, object]:
+    """Test feature extraction step independently (includes segmentation and efficiency)."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.feature_service import export_features_for_manifest
+    
+    manifest_path = Path(payload.manifest_path)
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"Manifest file not found: {payload.manifest_path}")
+    
+    holds_path = Path(payload.holds_path) if payload.holds_path else None
+    if holds_path and not holds_path.exists():
+        raise HTTPException(status_code=404, detail=f"Holds file not found: {payload.holds_path}")
+    
+    try:
+        output_path = export_features_for_manifest(
+            manifest_path,
+            holds_path=holds_path,
+            auto_wall_angle=payload.auto_wall_angle,
+            climber_height=payload.climber_height,
+            climber_wingspan=payload.climber_wingspan,
+            climber_flexibility=payload.climber_flexibility,
+        )
+        
+        features_data = None
+        efficiency_data = None
+        if output_path.exists():
+            import json
+            features_data = json.loads(output_path.read_text(encoding="utf-8"))
+        
+        efficiency_path = output_path.parent / "step_efficiency.json"
+        if efficiency_path.exists():
+            import json
+            efficiency_data = json.loads(efficiency_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "features_path": str(output_path),
+            "efficiency_path": str(efficiency_path) if efficiency_path.exists() else None,
+            "features_count": len(features_data) if features_data else 0,
+            "efficiency_count": len(efficiency_data) if efficiency_data else 0,
+            "sample_feature": features_data[0] if features_data else None,
+            "sample_efficiency": efficiency_data[0] if efficiency_data else None,
+        }
+    except Exception as e:
+        LOGGER.exception("Feature extraction failed")
+        raise HTTPException(status_code=500, detail=f"Feature extraction failed: {str(e)}")
+
+
+@app.get("/api/test/validate/{step_name}", response_class=JSONResponse)
+async def validate_step_output(step_name: str) -> dict[str, object]:
+    """Validate output of a specific step."""
+    # This is a placeholder - can be expanded with actual validation logic
+    valid_steps = [
+        "extract-frames",
+        "detect-holds",
+        "estimate-wall-angle",
+        "estimate-pose",
+        "extract-features",
+        "segment",
+        "compute-efficiency",
+    ]
+    
+    if step_name not in valid_steps:
+        raise HTTPException(status_code=400, detail=f"Invalid step name: {step_name}. Valid steps: {valid_steps}")
+    
+    return {
+        "step": step_name,
+        "status": "validation_not_implemented",
+        "message": "Step validation logic to be implemented",
+    }
+
+
+@app.get("/testing", response_class=HTMLResponse)
+async def testing_page(request: Request) -> HTMLResponse:
+    """Testing page for individual step execution."""
+    return templates.TemplateResponse("testing.html", {"request": request})
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Emit simple structured logs for every incoming HTTP request."""
