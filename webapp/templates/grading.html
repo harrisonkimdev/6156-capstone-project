@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Route Difficulty Grading</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <style>
+        .grade-display {
+            text-align: center;
+            padding: 2rem;
+            margin: 2rem 0;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .grade-value {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+        .grade-label {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: white;
+            transition: width 0.3s;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .feature-card {
+            padding: 1rem;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .feature-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+        .feature-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #333;
+        }
+        .grade-easy { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+        .grade-intermediate { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .grade-advanced { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+        .grade-expert { background: linear-gradient(135deg, #f83600 0%, #f9d423 100%); }
+        .grade-elite { background: linear-gradient(135deg, #8e2de2 0%, #4a00e0 100%); }
+    </style>
+</head>
+<body>
+<header class="topnav">
+  <div class="inner">
+    <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png" alt="BetaMove logo"><span>BetaMove</span></a>
+    <nav>
+      <a href="/">Pipeline</a>
+      <a href="/training">Training</a>
+      <a href="/grading" class="active">Route Grading</a>
+    </nav>
+  </div>
+</header>
+<main class="container">
+    <section class="card">
+        <h1 class="title">Route Difficulty Grading</h1>
+        <p class="subtitle">Predict route difficulty (V0-V10) from completed pipeline jobs.</p>
+        
+        <form id="grade-form" class="form">
+            <div class="form-row">
+                <label for="job_select">Select Completed Job</label>
+                <select id="job_select" name="job_id" required>
+                    <option value="">-- Select a job --</option>
+                    {% for job in jobs %}
+                    <option value="{{ job.id }}">{{ job.id }} - {{ job.video_dir }}</option>
+                    {% endfor %}
+                </select>
+                <p class="hint">Only completed jobs are shown.</p>
+            </div>
+            <div class="form-row">
+                <button type="submit" class="btn btn-primary">Get Route Grade</button>
+            </div>
+        </form>
+        
+        <div id="results" style="display: none;">
+            <div id="grade-display" class="grade-display">
+                <div class="grade-label">Predicted Difficulty</div>
+                <div class="grade-value" id="grade-value">--</div>
+                <div class="grade-label" id="calibrated-grade">--</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidence-fill" style="width: 0%"></div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.9rem;">
+                    Confidence: <span id="confidence-value">0%</span>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-top: 2rem;">
+                <h2>Route Features</h2>
+                <div id="features-container" class="features-grid"></div>
+            </div>
+        </div>
+        
+        <div id="error" style="display: none; margin-top: 1rem; padding: 1rem; background: #fee; border-radius: 4px; color: #c33;">
+            <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+    </section>
+</main>
+
+<script>
+document.getElementById('grade-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const jobId = document.getElementById('job_select').value;
+    if (!jobId) return;
+    
+    const resultsDiv = document.getElementById('results');
+    const errorDiv = document.getElementById('error');
+    resultsDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/route_grade`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to get route grade');
+        }
+        
+        const data = await response.json();
+        
+        // Display grade
+        const gradeValue = document.getElementById('grade-value');
+        const calibratedGrade = document.getElementById('calibrated-grade');
+        const confidenceValue = document.getElementById('confidence-value');
+        const confidenceFill = document.getElementById('confidence-fill');
+        const gradeDisplay = document.getElementById('grade-display');
+        
+        if (data.grade !== null && data.grade !== undefined) {
+            gradeValue.textContent = `V${data.grade.toFixed(1)}`;
+            calibratedGrade.textContent = data.calibrated_grade || `V${Math.round(data.grade)}`;
+            confidenceValue.textContent = `${(data.confidence * 100).toFixed(0)}%`;
+            confidenceFill.style.width = `${data.confidence * 100}%`;
+            
+            // Color code by difficulty
+            const grade = data.grade;
+            gradeDisplay.className = 'grade-display';
+            if (grade < 2) gradeDisplay.classList.add('grade-easy');
+            else if (grade < 4) gradeDisplay.classList.add('grade-intermediate');
+            else if (grade < 6) gradeDisplay.classList.add('grade-advanced');
+            else if (grade < 8) gradeDisplay.classList.add('grade-expert');
+            else gradeDisplay.classList.add('grade-elite');
+        } else {
+            gradeValue.textContent = 'N/A';
+            calibratedGrade.textContent = 'Model not trained';
+            confidenceValue.textContent = '0%';
+            confidenceFill.style.width = '0%';
+        }
+        
+        // Display features
+        const featuresContainer = document.getElementById('features-container');
+        featuresContainer.innerHTML = '';
+        
+        if (data.features) {
+            for (const [key, value] of Object.entries(data.features)) {
+                const card = document.createElement('div');
+                card.className = 'feature-card';
+                card.innerHTML = `
+                    <div class="feature-label">${key.replace(/_/g, ' ')}</div>
+                    <div class="feature-value">${typeof value === 'number' ? value.toFixed(3) : value}</div>
+                `;
+                featuresContainer.appendChild(card);
+            }
+        }
+        
+        resultsDiv.style.display = 'block';
+    } catch (error) {
+        document.getElementById('error-message').textContent = error.message;
+        errorDiv.style.display = 'block';
+    }
+});
+</script>
+</body>
+</html>
+

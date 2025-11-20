@@ -1,0 +1,808 @@
+"""FastAPI application exposing a minimal web UI for the BetaMove pipeline."""
+
+from __future__ import annotations
+
+import logging
+import shutil
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+
+from pose_ai.cloud.gcs import get_gcs_manager
+from webapp.jobs import JobManager
+from webapp.pipeline_runner import execute_job
+from webapp.training_jobs import TrainManager
+from pose_ai.recommendation.efficiency import suggest_next_actions
+
+app = FastAPI(title="BetaMove Pipeline UI")
+
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/repo", StaticFiles(directory=str(ROOT_DIR)), name="repo")
+
+job_manager = JobManager()
+UPLOAD_ROOT = ROOT_DIR / "data" / "uploads"
+train_manager = TrainManager()
+LOGGER = logging.getLogger(__name__)
+GCS_MANAGER = get_gcs_manager()
+
+
+def _ensure_directory(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_uploaded_file(video: UploadFile) -> tuple[Path, str | None]:
+    if video is None:
+        raise HTTPException(status_code=400, detail="No file provided")
+    target_dir = _ensure_directory(UPLOAD_ROOT / uuid4().hex)
+    file_path = target_dir / video.filename
+    with file_path.open("wb") as destination:
+        video.file.seek(0)
+        shutil.copyfileobj(video.file, destination)
+    video.file.close()
+    gcs_uri: str | None = None
+    if GCS_MANAGER is not None:
+        try:
+            gcs_uri = GCS_MANAGER.upload_raw_video(
+                file_path,
+                upload_id=target_dir.name,
+                metadata={"filename": video.filename},
+            )
+        except Exception as exc:  # pragma: no cover - depends on GCS credentials
+            LOGGER.warning("Failed to upload raw video to GCS: %s", exc)
+    return target_dir, gcs_uri
+
+
+def _default_required_labels() -> list[str]:
+    return ["climber", "person"]
+
+
+def _default_target_labels() -> list[str]:
+    return ["climber", "person", "hold", "wall"]
+
+
+class MediaMetadata(BaseModel):
+    route_name: str | None = Field(None, description="Route or boulder name")
+    gym_location: str | None = Field(None, description="Venue or wall identifier")
+    camera_orientation: str | None = Field(None, description="portrait/landscape/other")
+    notes: str | None = Field(None, description="Freeform notes supplied by the climber")
+    tags: list[str] = Field(default_factory=list, description="Optional list of search tags")
+    
+    # IMU/Gyroscope sensor data (raw data from mobile device)
+    # Provide either quaternion or euler angles
+    imu_quaternion: list[float] | None = Field(None, description="Device orientation as quaternion [w, x, y, z]", min_length=4, max_length=4)
+    imu_euler_angles: list[float] | None = Field(None, description="Device orientation as Euler angles [pitch, roll, yaw] in degrees", min_length=3, max_length=3)
+    imu_timestamp: float | None = Field(None, description="IMU reading timestamp (unix milliseconds)")
+    
+    # Climber physical parameters (optional, for personalized recommendations)
+    climber_height: float | None = Field(None, description="Climber height in cm", gt=0, le=250)
+    climber_wingspan: float | None = Field(None, description="Climber wingspan (fingertip to fingertip) in cm", gt=0, le=300)
+    climber_flexibility: float | None = Field(None, description="Flexibility score: 0=low, 0.5=average, 1=high", ge=0, le=1.0)
+
+
+class YoloOptions(BaseModel):
+    enabled: bool = Field(True, description="Toggle YOLO still selection")
+    model_name: str = Field("yolov8n.pt", description="Model weights passed to ultralytics")
+    min_confidence: float = Field(0.35, ge=0.0, le=1.0)
+    required_labels: list[str] = Field(default_factory=_default_required_labels)
+    target_labels: list[str] = Field(default_factory=_default_target_labels)
+    max_frames: int | None = Field(None, gt=0)
+    imgsz: int = Field(640, ge=128, le=1536)
+    device: str | None = Field(None, description="Optional torch device string")
+
+
+class SegmentationOptions(BaseModel):
+    enabled: bool = Field(False, description="Enable segmentation")
+    method: str = Field("yolo", description="Segmentation method: 'yolo', 'hsv', or 'none'")
+    model_name: str = Field("yolov8n-seg.pt", description="YOLO segmentation model name (only for 'yolo' method)")
+    export_masks: bool = Field(True, description="Export segmentation masks as images")
+    group_by_color: bool = Field(True, description="Group holds by color to identify routes")
+    hue_tolerance: int = Field(10, ge=0, le=90, description="Hue tolerance for color grouping")
+    sat_tolerance: int = Field(50, ge=0, le=255, description="Saturation tolerance for color grouping")
+    val_tolerance: int = Field(50, ge=0, le=255, description="Value tolerance for color grouping")
+    # HSV-specific parameters
+    hsv_hue_tolerance: int = Field(5, ge=0, le=179, description="HSV method: Hue tolerance for hold detection")
+    hsv_sat_tolerance: int = Field(50, ge=0, le=255, description="HSV method: Saturation tolerance for hold detection")
+    hsv_val_tolerance: int = Field(40, ge=0, le=255, description="HSV method: Value tolerance for hold detection")
+
+
+class FrameExtractionOptions(BaseModel):
+    method: str = Field("interval", description="Extraction method: 'interval', 'motion', or 'motion_pose'")
+    motion_threshold: float = Field(5.0, ge=0.0, description="Minimum motion score for motion-based extraction")
+    similarity_threshold: float = Field(0.8, ge=0.0, le=1.0, description="Maximum pose similarity (lower = more diverse)")
+    min_frame_interval: int = Field(5, ge=1, description="Minimum frames between selections")
+    use_optical_flow: bool = Field(True, description="Use optical flow for motion detection")
+    use_pose_similarity: bool = Field(True, description="Use pose similarity for frame selection")
+    initial_sampling_rate: float = Field(0.1, gt=0, description="Initial frame sampling rate in seconds for motion extraction")
+
+
+class PipelineRequest(BaseModel):
+    video_dir: str = Field(..., description="Directory containing source videos")
+    output_dir: str = Field("data/frames", description="Directory to write pipeline artifacts")
+    interval: float = Field(1.0, gt=0, description="Frame extraction interval in seconds (used for 'interval' method)")
+    skip_visuals: bool = Field(False, description="Disable OpenCV visual overlays")
+    source_uri: str | None = Field(None, description="Optional GCS URI referencing the uploaded video")
+    metadata: MediaMetadata | None = Field(None, description="Optional capture metadata")
+    yolo: YoloOptions = Field(default_factory=YoloOptions)
+    segmentation: SegmentationOptions = Field(default_factory=SegmentationOptions)
+    frame_extraction: FrameExtractionOptions = Field(default_factory=FrameExtractionOptions)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    jobs = [job.as_dict() for job in job_manager.list_jobs()]
+    return templates.TemplateResponse("index.html", {"request": request, "jobs": jobs})
+
+
+@app.get("/training", response_class=HTMLResponse)
+async def training_page(request: Request) -> HTMLResponse:
+    jobs = [job.as_dict() for job in train_manager.list()]
+    return templates.TemplateResponse("training.html", {"request": request, "jobs": jobs})
+
+
+@app.get("/grading", response_class=HTMLResponse)
+async def grading_page(request: Request) -> HTMLResponse:
+    """Route difficulty grading page."""
+    from webapp.jobs import JobStatus
+    jobs = [
+        job.as_dict() for job in job_manager.list_jobs()
+        if job.status == JobStatus.COMPLETED
+    ]
+    return templates.TemplateResponse("grading.html", {"request": request, "jobs": jobs})
+
+
+@app.get("/api/jobs")
+async def list_jobs() -> list[dict[str, object]]:
+    return [job.as_dict() for job in job_manager.list_jobs()]
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str) -> dict[str, object]:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    payload = job.as_dict()
+    payload["logs"] = job.log_lines()
+    return payload
+
+
+@app.get("/api/jobs/{job_id}/logs")
+async def get_job_logs(job_id: str) -> dict[str, object]:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"id": job.id, "logs": job.log_lines()}
+
+
+@app.post("/api/jobs", status_code=201)
+async def create_job(payload: PipelineRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
+    metadata_payload = payload.metadata.dict() if payload.metadata else {}
+    if payload.source_uri:
+        metadata_payload = dict(metadata_payload)
+        metadata_payload["source_uri"] = payload.source_uri
+    # Add segmentation and frame extraction options to metadata
+    metadata_payload["segmentation_options"] = payload.segmentation.dict()
+    metadata_payload["frame_extraction_options"] = payload.frame_extraction.dict()
+    metadata_payload = metadata_payload or None
+    job = job_manager.create_job(
+        video_dir=payload.video_dir,
+        output_dir=payload.output_dir,
+        interval=payload.interval,
+        skip_visuals=payload.skip_visuals,
+        metadata=metadata_payload,
+        yolo_options=payload.yolo.dict(),
+    )
+    background_tasks.add_task(execute_job, job)
+    return job.as_dict()
+
+
+@app.get("/api/videos")
+async def list_videos() -> dict[str, list[str]]:
+    root = Path("BetaMove") / "videos"
+    if not root.exists():
+        return {"videos": []}
+    videos = sorted(str(path) for path in root.glob("**/*.mp4"))
+    return {"videos": videos}
+
+
+@app.post("/api/upload", response_class=JSONResponse)
+async def upload_video(video: UploadFile = File(...)) -> dict[str, object]:
+    saved_dir, gcs_uri = _save_uploaded_file(video)
+    payload = {"video_dir": str(saved_dir)}
+    if gcs_uri:
+        payload["gcs_uri"] = gcs_uri
+    return payload
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/api/train/upload", response_class=JSONResponse)
+async def upload_features(file: UploadFile = File(...)) -> dict[str, object]:
+    root = _ensure_directory(UPLOAD_ROOT / "features")
+    dest = root / file.filename
+    with dest.open("wb") as f:
+        file.file.seek(0)
+        shutil.copyfileobj(file.file, f)
+    file.file.close()
+    return {"features_path": str(dest)}
+
+
+class TrainRequest(BaseModel):
+    features_path: str
+    task: str = Field("classification", description="classification or regression")
+    label_column: str = Field("detection_score")
+    label_threshold: float | None = 0.6
+    test_size: float = 0.2
+    random_state: int = 42
+    model_out: str = "models/xgb_pose.json"
+
+
+@app.post("/api/train", response_class=JSONResponse)
+async def start_training(payload: TrainRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
+    params = payload.dict()
+    features_path = params.pop("features_path")
+    job = train_manager.create(features_path=features_path, params=params)
+    from webapp.training_runner import execute_training  # lazy import
+    background_tasks.add_task(execute_training, job)
+    return job.as_dict()
+
+
+@app.get("/api/train/jobs")
+async def list_train_jobs() -> list[dict[str, object]]:
+    return [job.as_dict() for job in train_manager.list()]
+
+
+@app.get("/api/train/jobs/{job_id}")
+async def get_train_job(job_id: str) -> dict[str, object]:
+    job = train_manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
+@app.post("/api/jobs/{job_id}/clear")
+async def clear_job(job_id: str) -> dict[str, object]:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Clear logs, visualizations, and pose samples (non-destructive to files)
+    job.clear(include_logs=True, include_visuals=True, include_samples=True)
+    payload = job.as_dict()
+    payload["logs"] = job.log_lines()
+    return payload
+
+
+@app.get("/api/jobs/{job_id}/analysis")
+async def job_analysis(job_id: str) -> dict[str, object]:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.manifests:
+        raise HTTPException(status_code=400, detail="Job has no manifests yet")
+    # Use first manifest directory for analysis artifacts.
+    frame_dir = Path(job.manifests[0]).parent
+    features_path = frame_dir / "pose_features.json"
+    if not features_path.exists():
+        raise HTTPException(status_code=400, detail="Features not found for job")
+    import json
+    feature_rows = json.loads(features_path.read_text(encoding="utf-8"))
+    holds_path = frame_dir / "holds.json"
+    holds_payload: dict[str, dict] = {}
+    if holds_path.exists():
+        holds_payload = json.loads(holds_path.read_text(encoding="utf-8"))
+    next_holds = []
+    if feature_rows and holds_payload:
+        next_holds = suggest_next_actions(feature_rows[-1], list(holds_payload.values()), top_k=3)
+    return {
+        "job_id": job.id,
+        "next_holds": next_holds,
+        "holds_count": len(holds_payload),
+        "wall_angle": feature_rows[-1].get("wall_angle") if feature_rows else None,
+    }
+@app.get("/api/jobs/{job_id}/ml_predictions")
+def get_ml_predictions(job_id: str):
+    """Get ML model predictions for a job.
+    
+    Returns efficiency scores and next-action predictions from BiLSTM model.
+    Requires trained model at models/checkpoints/bilstm_multitask.pt
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed yet")
+    
+    # Check if model exists
+    model_path = ROOT_DIR / "models" / "checkpoints" / "bilstm_multitask.pt"
+    if not model_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="ML model not available. Train model first using scripts/train_bilstm.py"
+        )
+    
+    # Load features
+    import json
+    features_path = ROOT_DIR / "data" / "uploads" / job_id / "features.json"
+    if not features_path.exists():
+        raise HTTPException(status_code=404, detail="Features not found")
+    
+    try:
+        # Initialize inference engine (auto-detects BiLSTM or Transformer)
+        from pose_ai.ml.inference import ModelInference
+        
+        norm_path = ROOT_DIR / "models" / "checkpoints" / "normalization.npz"
+        inference = ModelInference(
+            model_path=model_path,
+            normalization_path=norm_path if norm_path.exists() else None,
+            device="cpu",  # Use CPU for web service
+            window_size=32,
+        )
+        
+        # Run inference
+        results = inference.predict_from_json(features_path, stride=5)
+        
+        # Format results
+        predictions = [
+            {
+                "frame_index": r.frame_index,
+                "efficiency_score": r.efficiency_score,
+                "next_action": r.next_action_name,
+                "next_action_probs": r.next_action_probs,
+            }
+            for r in results
+        ]
+        
+        return {
+            "job_id": job_id,
+            "num_predictions": len(predictions),
+            "predictions": predictions,
+        }
+    
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="PyTorch not installed. Install with: pip install torch"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+
+@app.get("/api/jobs/{job_id}/route_grade")
+async def get_route_grade(job_id: str):
+    """Get predicted route difficulty grade (V0-V10).
+    
+    Requires completed pipeline job with features, segments, efficiency, and holds.
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed yet")
+    
+    # Find job output directory
+    # Jobs are stored in data/uploads/{job_id} or output_dir from job
+    job_output_dir = ROOT_DIR / "data" / "uploads" / job_id
+    if not job_output_dir.exists():
+        # Try output_dir from job metadata
+        output_dir_str = job.output_dir if hasattr(job, "output_dir") else None
+        if output_dir_str:
+            job_output_dir = Path(output_dir_str)
+        else:
+            raise HTTPException(status_code=404, detail="Job output directory not found")
+    
+    # Load required files
+    import json
+    
+    features_path = job_output_dir / "pose_features.json"
+    efficiency_path = job_output_dir / "step_efficiency.json"
+    holds_path = job_output_dir / "holds.json"
+    
+    if not features_path.exists():
+        raise HTTPException(status_code=404, detail="pose_features.json not found")
+    
+    try:
+        # Load feature rows
+        with open(features_path, "r") as f:
+            feature_rows = json.load(f)
+        
+        # Load step efficiency
+        step_efficiency = []
+        step_segments = []
+        if efficiency_path.exists():
+            with open(efficiency_path, "r") as f:
+                efficiency_data = json.load(f)
+                from pose_ai.recommendation.efficiency import StepEfficiencyResult
+                from pose_ai.segmentation.steps import StepSegment
+                
+                for i, eff_dict in enumerate(efficiency_data):
+                    step_segments.append(StepSegment(
+                        step_id=eff_dict.get("step_id", i),
+                        start_index=0,
+                        end_index=0,
+                        start_time=eff_dict.get("start_time", 0.0),
+                        end_time=eff_dict.get("end_time", 0.0),
+                        label=eff_dict.get("label", "unknown"),
+                    ))
+                    step_efficiency.append(StepEfficiencyResult(
+                        step_id=eff_dict.get("step_id", i),
+                        score=eff_dict.get("score", 0.0),
+                        components=eff_dict.get("components", {}),
+                        start_time=eff_dict.get("start_time", 0.0),
+                        end_time=eff_dict.get("end_time", 0.0),
+                    ))
+        
+        # Load holds
+        holds = []
+        if holds_path.exists():
+            with open(holds_path, "r") as f:
+                holds_data = json.load(f)
+                if isinstance(holds_data, dict):
+                    holds = list(holds_data.values())
+                elif isinstance(holds_data, list):
+                    holds = holds_data
+        
+        # Extract wall angle
+        wall_angle = None
+        for row in feature_rows:
+            angle = row.get("wall_angle")
+            if angle is not None:
+                wall_angle = float(angle)
+                break
+        
+        # Extract route features
+        from pose_ai.ml.route_grading import extract_route_features, RouteDifficultyModel, GymGradeCalibration
+        
+        route_features = extract_route_features(
+            feature_rows=feature_rows,
+            step_segments=step_segments,
+            step_efficiency=step_efficiency,
+            holds=holds,
+            wall_angle=wall_angle,
+        )
+        
+        # Predict grade
+        model_path = ROOT_DIR / "models" / "route_grader.json"
+        if model_path.exists():
+            model = RouteDifficultyModel(model_path=model_path)
+            grade, confidence = model.predict_with_confidence(route_features)
+            
+            # Calibrate to gym scale
+            calibration = GymGradeCalibration()
+            calibrated_grade = calibration.calibrate(grade)
+        else:
+            # No model available - return features only
+            grade = None
+            confidence = 0.0
+            calibrated_grade = None
+        
+        return {
+            "job_id": job_id,
+            "grade": grade,
+            "confidence": confidence,
+            "calibrated_grade": calibrated_grade,
+            "features": route_features,
+        }
+    
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Required packages not available: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Route grading failed: {str(e)}")
+
+
+# Testing API endpoints for individual step execution
+TEST_OUTPUT_ROOT = ROOT_DIR / "data" / "test_outputs"
+
+
+class TestExtractFramesRequest(BaseModel):
+    video_file: str = Field(..., description="Path to video file or upload ID")
+    interval: float = Field(1.0, gt=0, description="Frame extraction interval in seconds")
+    output_dir: str | None = Field(None, description="Output directory (auto-generated if not provided)")
+
+
+@app.post("/api/test/extract-frames", response_class=JSONResponse)
+async def test_extract_frames(payload: TestExtractFramesRequest) -> dict[str, object]:
+    """Test frame extraction step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.data import extract_frames_every_n_seconds
+    
+    video_path = Path(payload.video_file)
+    if not video_path.exists():
+        # Try as upload ID
+        upload_path = UPLOAD_ROOT / payload.video_file
+        if upload_path.exists():
+            # Find video file in upload directory
+            video_files = list(upload_path.glob("*.mp4")) + list(upload_path.glob("*.avi")) + list(upload_path.glob("*.mov"))
+            if video_files:
+                video_path = video_files[0]
+            else:
+                raise HTTPException(status_code=404, detail=f"Video file not found: {payload.video_file}")
+        else:
+            raise HTTPException(status_code=404, detail=f"Video file not found: {payload.video_file}")
+    
+    output_dir = Path(payload.output_dir) if payload.output_dir else _ensure_directory(TEST_OUTPUT_ROOT / uuid4().hex)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        result = extract_frames_every_n_seconds(
+            video_path,
+            interval_seconds=payload.interval,
+            output_root=output_dir,
+            write_manifest=True,
+            overwrite=False,
+        )
+        
+        manifest_data = None
+        if result.manifest_path and result.manifest_path.exists():
+            import json
+            manifest_data = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "output_dir": str(output_dir),
+            "manifest_path": str(result.manifest_path) if result.manifest_path else None,
+            "saved_frames": result.saved_frames,
+            "manifest": manifest_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Frame extraction failed")
+        raise HTTPException(status_code=500, detail=f"Frame extraction failed: {str(e)}")
+
+
+class TestDetectHoldsRequest(BaseModel):
+    frame_dir: str = Field(..., description="Directory containing frame images")
+    model_name: str = Field("yolov8n.pt", description="YOLO model name")
+    device: str | None = Field(None, description="Device (cpu/cuda:0)")
+    eps: float = Field(0.03, description="DBSCAN epsilon")
+    min_samples: int = Field(3, description="DBSCAN min_samples")
+    use_tracking: bool = Field(True, description="Use temporal tracking")
+
+
+@app.post("/api/test/detect-holds", response_class=JSONResponse)
+async def test_detect_holds(payload: TestDetectHoldsRequest) -> dict[str, object]:
+    """Test hold detection step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.hold_extraction import extract_and_cluster_holds, export_holds_json
+    
+    frame_dir = Path(payload.frame_dir)
+    if not frame_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Frame directory not found: {payload.frame_dir}")
+    
+    image_paths = sorted(frame_dir.glob("*.jpg")) + sorted(frame_dir.glob("*.png"))
+    if not image_paths:
+        raise HTTPException(status_code=400, detail=f"No image files found in {payload.frame_dir}")
+    
+    try:
+        clustered = extract_and_cluster_holds(
+            image_paths,
+            model_name=payload.model_name,
+            device=payload.device,
+            eps=payload.eps,
+            min_samples=payload.min_samples,
+            use_tracking=payload.use_tracking,
+        )
+        
+        output_path = frame_dir / "holds.json"
+        if clustered:
+            export_holds_json(clustered, output_path=output_path)
+            holds_data = {hold.hold_id: hold.as_dict() for hold in clustered}
+        else:
+            holds_data = {}
+        
+        return {
+            "status": "success",
+            "holds_path": str(output_path),
+            "holds_count": len(clustered),
+            "holds": holds_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Hold detection failed")
+        raise HTTPException(status_code=500, detail=f"Hold detection failed: {str(e)}")
+
+
+class TestEstimateWallAngleRequest(BaseModel):
+    image_path: str = Field(..., description="Path to representative frame image")
+    hold_centers: list[list[float]] | None = Field(None, description="Optional hold centers [[x, y], ...]")
+
+
+@app.post("/api/test/estimate-wall-angle", response_class=JSONResponse)
+async def test_estimate_wall_angle(payload: TestEstimateWallAngleRequest) -> dict[str, object]:
+    """Test wall angle estimation step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.wall.angle import estimate_wall_angle
+    
+    image_path = Path(payload.image_path)
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail=f"Image file not found: {payload.image_path}")
+    
+    hold_centers = None
+    if payload.hold_centers:
+        hold_centers = [tuple(center) for center in payload.hold_centers]
+    
+    try:
+        result = estimate_wall_angle(image_path, hold_centers=hold_centers)
+        return {
+            "status": "success",
+            "result": result.as_dict(),
+        }
+    except Exception as e:
+        LOGGER.exception("Wall angle estimation failed")
+        raise HTTPException(status_code=500, detail=f"Wall angle estimation failed: {str(e)}")
+
+
+class TestEstimatePoseRequest(BaseModel):
+    manifest_path: str = Field(..., description="Path to manifest.json")
+
+
+@app.post("/api/test/estimate-pose", response_class=JSONResponse)
+async def test_estimate_pose(payload: TestEstimatePoseRequest) -> dict[str, object]:
+    """Test pose estimation step independently."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.pose_service import estimate_poses_from_manifest
+    
+    manifest_path = Path(payload.manifest_path)
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"Manifest file not found: {payload.manifest_path}")
+    
+    try:
+        frames = estimate_poses_from_manifest(manifest_path, save_json=True)
+        
+        pose_results_path = manifest_path.parent / "pose_results.json"
+        pose_data = None
+        if pose_results_path.exists():
+            import json
+            pose_data = json.loads(pose_results_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "pose_results_path": str(pose_results_path),
+            "frames_processed": len(frames),
+            "pose_results": pose_data,
+        }
+    except Exception as e:
+        LOGGER.exception("Pose estimation failed")
+        raise HTTPException(status_code=500, detail=f"Pose estimation failed: {str(e)}")
+
+
+class TestExtractFeaturesRequest(BaseModel):
+    manifest_path: str = Field(..., description="Path to manifest.json")
+    holds_path: str | None = Field(None, description="Optional path to holds.json")
+    auto_wall_angle: bool = Field(True, description="Auto-estimate wall angle")
+    climber_height: float | None = Field(None, description="Climber height in cm")
+    climber_wingspan: float | None = Field(None, description="Climber wingspan in cm")
+    climber_flexibility: float | None = Field(None, description="Climber flexibility (0-1)")
+
+
+@app.post("/api/test/extract-features", response_class=JSONResponse)
+async def test_extract_features(payload: TestExtractFeaturesRequest) -> dict[str, object]:
+    """Test feature extraction step independently (includes segmentation and efficiency)."""
+    import sys
+    from pathlib import Path
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.service.feature_service import export_features_for_manifest
+    
+    manifest_path = Path(payload.manifest_path)
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"Manifest file not found: {payload.manifest_path}")
+    
+    holds_path = Path(payload.holds_path) if payload.holds_path else None
+    if holds_path and not holds_path.exists():
+        raise HTTPException(status_code=404, detail=f"Holds file not found: {payload.holds_path}")
+    
+    try:
+        output_path = export_features_for_manifest(
+            manifest_path,
+            holds_path=holds_path,
+            auto_wall_angle=payload.auto_wall_angle,
+            climber_height=payload.climber_height,
+            climber_wingspan=payload.climber_wingspan,
+            climber_flexibility=payload.climber_flexibility,
+        )
+        
+        features_data = None
+        efficiency_data = None
+        if output_path.exists():
+            import json
+            features_data = json.loads(output_path.read_text(encoding="utf-8"))
+        
+        efficiency_path = output_path.parent / "step_efficiency.json"
+        if efficiency_path.exists():
+            import json
+            efficiency_data = json.loads(efficiency_path.read_text(encoding="utf-8"))
+        
+        return {
+            "status": "success",
+            "features_path": str(output_path),
+            "efficiency_path": str(efficiency_path) if efficiency_path.exists() else None,
+            "features_count": len(features_data) if features_data else 0,
+            "efficiency_count": len(efficiency_data) if efficiency_data else 0,
+            "sample_feature": features_data[0] if features_data else None,
+            "sample_efficiency": efficiency_data[0] if efficiency_data else None,
+        }
+    except Exception as e:
+        LOGGER.exception("Feature extraction failed")
+        raise HTTPException(status_code=500, detail=f"Feature extraction failed: {str(e)}")
+
+
+@app.get("/api/test/validate/{step_name}", response_class=JSONResponse)
+async def validate_step_output(step_name: str) -> dict[str, object]:
+    """Validate output of a specific step."""
+    # This is a placeholder - can be expanded with actual validation logic
+    valid_steps = [
+        "extract-frames",
+        "detect-holds",
+        "estimate-wall-angle",
+        "estimate-pose",
+        "extract-features",
+        "segment",
+        "compute-efficiency",
+    ]
+    
+    if step_name not in valid_steps:
+        raise HTTPException(status_code=400, detail=f"Invalid step name: {step_name}. Valid steps: {valid_steps}")
+    
+    return {
+        "step": step_name,
+        "status": "validation_not_implemented",
+        "message": "Step validation logic to be implemented",
+    }
+
+
+@app.get("/testing", response_class=HTMLResponse)
+async def testing_page(request: Request) -> HTMLResponse:
+    """Testing page for individual step execution."""
+    return templates.TemplateResponse("testing.html", {"request": request})
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Emit simple structured logs for every incoming HTTP request."""
+    LOGGER.info(">> %s %s", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("!! %s %s failed: %s", request.method, request.url.path, exc)
+        raise
+    LOGGER.info("<< %s %s %s", request.method, request.url.path, response.status_code)
+    return response
