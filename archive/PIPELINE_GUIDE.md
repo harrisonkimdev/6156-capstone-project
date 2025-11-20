@@ -40,7 +40,9 @@ This system analyzes bouldering climbing videos to:
 
 ### Key Features
 
-- **Video Processing**: Extract frames at configurable intervals (no duration limits)
+- **Video Processing**: Extract frames using interval-based, motion-based, or motion+pose similarity methods
+- **YOLO Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions
+- **Color-Based Route Grouping**: Automatically group holds by color to identify climbing routes/problems
 - **Pose Estimation**: MediaPipe 33-landmark detection with confidence filtering
 - **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering and temporal tracking
 - **Hold Type Classification**: YOLOv8 fine-tuning for hold types (crimp, sloper, jug, pinch, foot_only, volume)
@@ -78,41 +80,53 @@ This system analyzes bouldering climbing videos to:
 │  Pipeline Runner (webapp/pipeline_runner.py)            │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │ 1. Frame Extraction (scripts/extract_frames.py) │   │
+│  │    - Interval-based (default)                    │   │
+│  │    - Motion-based (optical flow)                 │   │
+│  │    - Motion + Pose similarity                    │   │
 │  └────────────────┬────────────────────────────────┘   │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 2. Hold Detection (service/hold_extraction.py)   │  │
-│  │    - YOLOv8 inference on frames                  │  │
-│  │    - DBSCAN spatial clustering                   │  │
+│  │ 2. YOLO Segmentation (segmentation/             │  │
+│  │    yolo_segmentation.py) - OPTIONAL              │  │
+│  │    - Wall, holds, climber pixel-level masks     │  │
+│  │    - Color-based route grouping                 │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 3. Wall Angle Estimation (wall/angle.py)         │  │
+│  │ 3. Hold Detection (service/hold_extraction.py)   │  │
+│  │    - YOLOv8 inference on frames                  │  │
+│  │    - DBSCAN spatial clustering                   │  │
+│  │    - Temporal tracking (IoU + Kalman)            │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 4. Wall Angle Estimation (wall/angle.py)         │  │
+│  │    - IMU sensor data (priority)                  │  │
 │  │    - Hough line detection + RANSAC               │  │
 │  │    - PCA fallback for edge-rich frames           │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 4. Pose Estimation (scripts/run_pose_estimation) │  │
+│  │ 5. Pose Estimation (scripts/run_pose_estimation) │  │
 │  │    - MediaPipe 33 landmarks per frame            │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 5. Feature Extraction (features/aggregation.py)  │  │
+│  │ 6. Feature Extraction (features/aggregation.py)  │  │
 │  │    - Joint angles, COM, velocities               │  │
 │  │    - Hold proximity & contact inference          │  │
 │  │    - Wall alignment metrics                      │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 6. Segmentation (segmentation/rule_based.py)     │  │
+│  │ 7. Segmentation (segmentation/rule_based.py)     │  │
 │  │    - Movement vs rest classification             │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 7. Efficiency Scoring (recommendation/           │  │
+│  │ 8. Efficiency Scoring (recommendation/           │  │
 │  │    efficiency.py)                                │  │
-│  │    - 5-component weighted score                  │  │
+│  │    - 7-component weighted score                  │  │
 │  │    - Next-hold recommendations                   │  │
 │  └──────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
@@ -129,6 +143,9 @@ This system analyzes bouldering climbing videos to:
 ### Core Modules
 
 - **`src/pose_ai/pose/estimator.py`**: MediaPipe wrapper with smoothing and dropout handling
+- **`src/pose_ai/data/frame_sampler.py`**: Interval-based frame extraction
+- **`src/pose_ai/data/advanced_sampler.py`**: Motion-based and pose similarity frame extraction
+- **`src/pose_ai/segmentation/yolo_segmentation.py`**: YOLO segmentation for wall/holds/climber separation and color-based route grouping
 - **`src/pose_ai/service/hold_extraction.py`**: YOLO-based hold detection and clustering
 - **`src/pose_ai/wall/angle.py`**: Automatic wall angle estimation
 - **`src/pose_ai/features/aggregation.py`**: Feature engineering from pose frames
@@ -143,17 +160,70 @@ This system analyzes bouldering climbing videos to:
 
 ### 1. Frame Extraction
 
-**Script**: [`scripts/extract_frames.py`](../scripts/extract_frames.py)
+**Script**: [`scripts/extract_frames.py`](../scripts/extract_frames.py)  
+**Module**: [`src/pose_ai/data/frame_sampler.py`](../src/pose_ai/data/frame_sampler.py), [`src/pose_ai/data/advanced_sampler.py`](../src/pose_ai/data/advanced_sampler.py)
 
-Extracts frames from videos at specified intervals with no duration limits.
+Extracts frames from videos using multiple methods:
+
+#### Method 1: Interval-Based (Default)
+
+Extracts frames at specified time intervals.
 
 ```bash
 python scripts/extract_frames.py BetaMove/videos --output data/frames --interval 1.5
 ```
 
+#### Method 2: Motion-Based
+
+Uses optical flow to detect motion and select frames with significant movement.
+
+```bash
+python scripts/extract_frames.py BetaMove/videos --output data/frames \
+  --method motion \
+  --motion-threshold 5.0 \
+  --min-frame-interval 5 \
+  --initial-sampling-rate 0.1
+```
+
+**Parameters**:
+
+- `--motion-threshold`: Minimum motion score to consider frame (default: 5.0)
+- `--min-frame-interval`: Minimum frames between selections (default: 5)
+- `--initial-sampling-rate`: Initial frame sampling rate in seconds (default: 0.1)
+- `--no-optical-flow`: Disable optical flow (uses simple frame difference)
+
+#### Method 3: Motion + Pose Similarity
+
+Combines motion detection with pose similarity to select diverse frames.
+
+```bash
+python scripts/extract_frames.py BetaMove/videos --output data/frames \
+  --method motion_pose \
+  --motion-threshold 5.0 \
+  --similarity-threshold 0.8 \
+  --min-frame-interval 5 \
+  --initial-sampling-rate 0.1
+```
+
+**Parameters**:
+
+- `--similarity-threshold`: Maximum pose similarity (lower = more diverse, default: 0.8)
+- `--no-pose-similarity`: Disable pose similarity filtering
+
+**Algorithm**:
+
+1. Extract frames at high rate (initial_sampling_rate)
+2. Compute motion scores using optical flow
+3. Filter frames by motion threshold
+4. Run pose estimation on high-motion frames
+5. Compare pose keypoints between consecutive frames
+6. Select frames where pose similarity < threshold (significant pose change)
+7. Apply minimum interval constraint
+
 **Output**: `data/frames/<video_id>/frame_*.jpg` + `manifest.json`
 
-**Manifest Schema**:
+**Manifest Schema** (Interval Method):
+
 ```json
 {
   "video_name": "video01.mp4",
@@ -163,13 +233,144 @@ python scripts/extract_frames.py BetaMove/videos --output data/frames --interval
   "frame_interval": 1.5,
   "output_dir": "data/frames/video01",
   "frames": [
-    {"frame_number": 0, "timestamp_sec": 0.0, "file_path": "frame_0000.jpg"},
-    {"frame_number": 45, "timestamp_sec": 1.5, "file_path": "frame_0045.jpg"}
+    { "frame_number": 0, "timestamp_sec": 0.0, "file_path": "frame_0000.jpg" },
+    { "frame_number": 45, "timestamp_sec": 1.5, "file_path": "frame_0045.jpg" }
   ]
 }
 ```
 
-### 2. Hold Detection
+**Manifest Schema** (Motion Methods):
+
+```json
+{
+  "video": "video01.mp4",
+  "fps": 30.0,
+  "extraction_method": "motion_pose",
+  "motion_threshold": 5.0,
+  "similarity_threshold": 0.8,
+  "min_frame_interval": 5,
+  "total_frames": 2700,
+  "saved_frames": 45,
+  "frames": [
+    {
+      "frame_index": 0,
+      "saved_index": 0,
+      "timestamp_seconds": 0.0,
+      "relative_path": "frame_0000.jpg",
+      "motion_score": 8.5
+    }
+  ]
+}
+```
+
+### 2. YOLO Segmentation (NEW)
+
+**Module**: [`src/pose_ai/segmentation/yolo_segmentation.py`](../src/pose_ai/segmentation/yolo_segmentation.py)
+
+Uses YOLO segmentation model to separate wall, holds, and climber regions at pixel level.
+
+```python
+from pose_ai.segmentation.yolo_segmentation import YoloSegmentationModel, export_segmentation_masks
+
+# Initialize segmentation model
+seg_model = YoloSegmentationModel(
+    model_name="yolov8n-seg.pt",
+    device="cuda",  # or "cpu"
+    imgsz=640
+)
+
+# Segment single frame
+result = seg_model.segment_frame(
+    image_path,
+    conf_threshold=0.25,
+    target_classes=["wall", "hold", "climber", "person"]
+)
+
+# Batch process multiple frames
+results = seg_model.batch_segment_frames(
+    image_paths,
+    conf_threshold=0.25,
+    target_classes=["wall", "hold", "climber", "person"]
+)
+
+# Export masks
+export_segmentation_masks(results, output_dir, export_images=True, export_json=True)
+```
+
+**Output**:
+
+- `masks/`: Directory containing binary mask images for each class
+- `segmentation_results.json`: Metadata with mask paths and confidence scores
+
+**Color-Based Route Grouping**:
+
+Groups holds by color to identify climbing routes/problems (same color = same route).
+
+```python
+from pose_ai.segmentation.yolo_segmentation import (
+    extract_hold_colors,
+    cluster_holds_by_color,
+    export_routes_json
+)
+
+# Extract dominant color from each hold region
+color_infos = extract_hold_colors(
+    hold_detections,
+    image_paths,
+    segmentation_results=seg_results
+)
+
+# Cluster holds by similar color
+routes = cluster_holds_by_color(
+    color_infos,
+    hue_tolerance=10,    # Maximum hue difference (0-179)
+    sat_tolerance=50,    # Maximum saturation difference (0-255)
+    val_tolerance=50     # Maximum value difference (0-255)
+)
+
+# Export route groupings
+export_routes_json(routes, output_path="routes.json")
+```
+
+**Output**: `routes.json`
+
+```json
+{
+  "routes": [
+    {
+      "route_id": "route_0",
+      "color_label": "red",
+      "color_hsv": [0, 200, 200],
+      "hold_ids": ["hold_1", "hold_2", "hold_5"],
+      "hold_count": 3
+    },
+    {
+      "route_id": "route_1",
+      "color_label": "blue",
+      "color_hsv": [240, 200, 200],
+      "hold_ids": ["hold_3", "hold_4"],
+      "hold_count": 2
+    }
+  ],
+  "total_routes": 2
+}
+```
+
+**Key Parameters**:
+
+- `model_name`: YOLO segmentation model (e.g., `"yolov8n-seg.pt"`)
+- `conf_threshold`: Detection confidence threshold (default: 0.25)
+- `hue_tolerance`: Color clustering tolerance for hue (default: 10)
+- `sat_tolerance`: Color clustering tolerance for saturation (default: 50)
+- `val_tolerance`: Color clustering tolerance for value (default: 50)
+
+**Usage in Pipeline**:
+
+```bash
+python scripts/extract_frames.py video_dir --segmentation --seg-model yolov8n-seg.pt
+```
+
+### 3. Hold Detection
 
 **Module**: [`src/pose_ai/service/hold_extraction.py`](../src/pose_ai/service/hold_extraction.py)
 
@@ -190,6 +391,7 @@ holds = cluster_holds(detections, eps=30, min_samples=3)
 ```
 
 **Output**: `holds.json`
+
 ```json
 {
   "holds": [
@@ -205,22 +407,25 @@ holds = cluster_holds(detections, eps=30, min_samples=3)
 ```
 
 **Key Parameters**:
+
 - `model_name`: `"yolov8n"` (fast, mAP ≥ 0.60) or `"yolov8m"` (accurate, mAP ≥ 0.68)
 - `conf_threshold`: Detection confidence threshold (default: 0.25)
 - `eps`: DBSCAN clustering radius in pixels (default: 30)
 - `min_samples`: Minimum detections to form a cluster (default: 3)
 
-### 3. Wall Angle Estimation
+### 4. Wall Angle Estimation
 
 **Module**: [`src/pose_ai/wall/angle.py`](../src/pose_ai/wall/angle.py)
 
 Automatically estimates wall angle from video frames using edge detection and geometric analysis. **Now supports IMU sensor data for improved accuracy.**
 
 **Priority Order**:
+
 1. **IMU Sensor Data** (if provided): Most accurate (±1°)
 2. **Vision-based Estimation** (fallback): Hough + PCA (±5°)
 
 **IMU Integration**:
+
 ```python
 from pose_ai.wall.angle import compute_wall_angle_from_imu
 
@@ -236,6 +441,7 @@ result = compute_wall_angle_from_imu(
 ```
 
 **Vision-based Algorithm** (fallback):
+
 1. **Hough Line Detection**: Detect vertical/near-vertical lines in edge-filtered frames
 2. **RANSAC Fitting**: Robust line fitting to handle outliers
 3. **PCA Fallback**: Use principal component analysis if insufficient lines detected
@@ -244,10 +450,11 @@ result = compute_wall_angle_from_imu(
 **Output**: Angle in degrees (0° = horizontal, 90° = vertical), confidence score 0-1
 
 **Typical Performance**:
+
 - **IMU sensor**: MAE ≤ 1° (highly accurate)
 - **Vision-based**: Vertical walls MAE ≤ 5°, Overhangs MAE ≤ 8°
 
-### 4. Pose Estimation
+### 5. Pose Estimation
 
 **Module**: [`src/pose_ai/pose/estimator.py`](../src/pose_ai/pose/estimator.py)  
 **Script**: [`scripts/run_pose_estimation.py`](../scripts/run_pose_estimation.py)
@@ -259,6 +466,7 @@ python scripts/run_pose_estimation.py --frames-root data/frames
 ```
 
 **Output**: `pose_results.json`
+
 ```json
 {
   "frames": [
@@ -266,8 +474,22 @@ python scripts/run_pose_estimation.py --frames-root data/frames
       "frame_path": "frame_0000.jpg",
       "timestamp": 0.0,
       "landmarks": [
-        {"id": 0, "name": "nose", "x": 0.51, "y": 0.23, "z": -0.12, "visibility": 0.95},
-        {"id": 11, "name": "left_shoulder", "x": 0.45, "y": 0.35, "z": -0.08, "visibility": 0.92}
+        {
+          "id": 0,
+          "name": "nose",
+          "x": 0.51,
+          "y": 0.23,
+          "z": -0.12,
+          "visibility": 0.95
+        },
+        {
+          "id": 11,
+          "name": "left_shoulder",
+          "x": 0.45,
+          "y": 0.35,
+          "z": -0.08,
+          "visibility": 0.92
+        }
       ]
     }
   ]
@@ -275,6 +497,7 @@ python scripts/run_pose_estimation.py --frames-root data/frames
 ```
 
 **Key Landmarks** (for climbing analysis):
+
 - Shoulders (11, 12)
 - Elbows (13, 14)
 - Wrists (15, 16)
@@ -282,7 +505,7 @@ python scripts/run_pose_estimation.py --frames-root data/frames
 - Knees (25, 26)
 - Ankles (27, 28)
 
-### 5. Feature Extraction
+### 6. Feature Extraction
 
 **Module**: [`src/pose_ai/features/aggregation.py`](../src/pose_ai/features/aggregation.py)  
 **Script**: [`scripts/run_feature_export.py`](../scripts/run_feature_export.py)
@@ -296,22 +519,26 @@ python scripts/run_feature_export.py data/frames/video01/manifest.json
 **Feature Categories**:
 
 1. **Joint Angles**:
+
    - Elbow angle (shoulder-elbow-wrist)
    - Knee angle (hip-knee-ankle)
    - Hip angle (shoulder-hip-knee)
    - Shoulder angle (elbow-shoulder-hip)
 
 2. **Center of Mass (COM)**:
+
    - Weighted average of major landmarks
    - COM velocity and acceleration
    - COM position relative to support polygon
 
 3. **Hold Relationships**:
+
    - Distance from each limb to nearest hold
    - Contact inference (distance + velocity thresholds)
    - Contact duration and stability
 
 4. **Wall Alignment**:
+
    - `wall_angle`: Estimated wall inclination (from IMU or vision)
    - `hip_alignment_error`: Hip deviation from wall normal
    - `com_along_wall`: COM projection along wall surface
@@ -324,6 +551,7 @@ python scripts/run_feature_export.py data/frames/video01/manifest.json
    - `body_scale_normalized`: Body scale adjusted by height (expected shoulder width = height × 0.16)
 
 **Personalization Effects**:
+
 - **Body Scale Normalization**: Adjusts for different body proportions using climber height
 - **Reach Constraints**: Personalized reach limits based on wingspan/height ratio and flexibility
 - **Efficiency Scoring**: Flexibility-adjusted reach penalty thresholds (5-10% bonus for flexible climbers)
@@ -335,7 +563,7 @@ python scripts/run_feature_export.py data/frames/video01/manifest.json
 
 **Output**: `pose_features.json`
 
-### 6. Segmentation
+### 7. Segmentation
 
 **Module**: [`src/pose_ai/segmentation/rule_based.py`](../src/pose_ai/segmentation/rule_based.py)  
 **Script**: [`scripts/run_segmentation.py`](../scripts/run_segmentation.py)
@@ -343,10 +571,12 @@ python scripts/run_feature_export.py data/frames/video01/manifest.json
 Classifies frames into movement vs rest segments using velocity and position stability heuristics.
 
 **Classification Logic**:
+
 - **Movement**: High joint velocities (above threshold), changing COM position
 - **Rest**: Low velocities, stable position for minimum duration
 
 **Output**: `segment_metrics.json`
+
 ```json
 {
   "segments": [
@@ -387,6 +617,7 @@ Focus joints: wrists, ankles, hips, shoulders, COM
 ### Hold Contact Inference
 
 **Current Implementation** (basic distance thresholding):
+
 ```python
 def infer_contact(joint_pos, holds, threshold=0.25):
     """Check if joint is in contact with any hold"""
@@ -396,6 +627,7 @@ def infer_contact(joint_pos, holds, threshold=0.25):
 ```
 
 **Planned Enhancement** (per efficiency_calculation.md):
+
 - Distance threshold with hysteresis (`r_on` vs `r_off`)
 - Velocity condition (`|v| <= v_hold`)
 - Minimum duration filter (`min_on_frames >= 3`)
@@ -436,6 +668,7 @@ def compute_efficiency_score(pose_frames, holds, wall_angle):
 ```
 
 **Interpretation**:
+
 - **0.8-1.0**: Excellent efficiency, smooth and controlled
 - **0.6-0.8**: Good efficiency, minor inefficiencies
 - **0.4-0.6**: Moderate efficiency, significant room for improvement
@@ -445,28 +678,33 @@ def compute_efficiency_score(pose_frames, holds, wall_angle):
 ### Implementation Details
 
 **Support Polygon Stability**:
+
 - Uses `scipy.spatial.ConvexHull` when available (3+ contact points)
 - Falls back to simple polygon if scipy not available or < 3 points
 - Stability score: `exp(-α * distance_to_polygon / body_scale)`
 - Default α = 4.0
 
 **Technique Detection** (per efficiency_calculation.md):
+
 - **Bicycle**: Both feet on same/near hold, opposing toe vectors
 - **Back-flag**: Free leg extended behind body, hip rotation counter
 - **Drop-knee**: Knee internal rotation with pelvic twist
 - Confidence scores (0-1) computed per frame, averaged across step
 
 **Path Efficiency**:
+
 - Accumulates COM path length frame-by-frame
 - Compares to net displacement: `net_disp / (path_len + ε)`
 - Rewards direct, economical movement
 
 **Jerk Penalty**:
+
 - Third derivative of position (computed via `kinematics.py`)
 - Penalizes jerky, uncontrolled movements
 - Normalized by body scale
 
 **Contact Inference Integration**:
+
 - Uses advanced contact filter with hysteresis (r_on/r_off)
 - Velocity condition enforced (low speed required for contact)
 - Minimum duration filter (≥3 frames)
@@ -481,12 +719,14 @@ def compute_efficiency_score(pose_frames, holds, wall_angle):
 ### Current Implementation
 
 **Basic Version** (`suggest_next_actions`):
+
 - Distance-based heuristic with COM proximity
 - Recency penalty (avoid just-released holds)
 - Directional bias (upward preferred)
 - Fast, simple, no simulation
 
 **Advanced Version** (`suggest_next_actions_advanced`):
+
 - Rule-based planner with efficiency simulation
 - Candidate hold sampling (K=10, upward bias)
 - Support simulation (computes new contact set)
@@ -508,6 +748,7 @@ candidates = planner.plan_next_move(current_row, holds, top_k=3)
 ```
 
 **Output Example**:
+
 ```json
 {
   "recommendations": [
@@ -525,6 +766,7 @@ candidates = planner.plan_next_move(current_row, holds, top_k=3)
 ### Future Enhancement (Model-Based v2)
 
 **BiLSTM/Transformer**:
+
 - Input: Sliding window (T=32 frames @ 25fps ≈ 1.28s)
 - Features: Normalized keypoints, v/a, COM, contact embeddings, efficiency metrics
 - Architecture: BiLSTM (128-256) + attention pooling
@@ -565,6 +807,7 @@ file: <video_file>
 ```
 
 **Response**:
+
 ```json
 {
   "filename": "video01.mp4",
@@ -595,11 +838,52 @@ Content-Type: application/json
     "enabled": true,
     "model_name": "yolov8n.pt",
     "min_confidence": 0.35
+  },
+  "frame_extraction": {
+    "method": "motion_pose",
+    "motion_threshold": 5.0,
+    "similarity_threshold": 0.8,
+    "min_frame_interval": 5,
+    "use_optical_flow": true,
+    "use_pose_similarity": true,
+    "initial_sampling_rate": 0.1
+  },
+  "segmentation": {
+    "enabled": true,
+    "method": "yolo",
+    "model_name": "yolov8n-seg.pt",
+    "export_masks": true,
+    "group_by_color": true,
+    "hue_tolerance": 10,
+    "sat_tolerance": 50,
+    "val_tolerance": 50
   }
 }
 ```
 
+**Frame Extraction Options**:
+
+- `method`: `"interval"` (time-based), `"motion"` (motion-based), or `"motion_pose"` (motion + pose similarity)
+- `motion_threshold`: Minimum motion score (default: 5.0)
+- `similarity_threshold`: Maximum pose similarity for `motion_pose` method (default: 0.8)
+- `min_frame_interval`: Minimum frames between selections (default: 5)
+- `use_optical_flow`: Enable optical flow for motion detection (default: true)
+- `use_pose_similarity`: Enable pose similarity filtering (default: true, only for `motion_pose`)
+- `initial_sampling_rate`: Initial frame sampling rate in seconds (default: 0.1)
+
+**Segmentation Options**:
+
+- `enabled`: Enable YOLO segmentation (default: false)
+- `method`: Segmentation method, currently only `"yolo"` (default: "yolo")
+- `model_name`: YOLO segmentation model name (default: "yolov8n-seg.pt")
+- `export_masks`: Export segmentation masks as images (default: true)
+- `group_by_color`: Group holds by color to identify routes (default: true)
+- `hue_tolerance`: Hue tolerance for color clustering (default: 10)
+- `sat_tolerance`: Saturation tolerance for color clustering (default: 50)
+- `val_tolerance`: Value tolerance for color clustering (default: 50)
+
 **Metadata Fields**:
+
 - `imu_quaternion`: Device orientation as quaternion [w, x, y, z] (for accurate wall angle)
 - `imu_euler_angles`: Device orientation as Euler angles [pitch, roll, yaw] in degrees
 - `climber_height`: Height in cm (for body scale normalization)
@@ -607,6 +891,7 @@ Content-Type: application/json
 - `climber_flexibility`: Flexibility score 0-1 (for threshold adjustments)
 
 **Response**:
+
 ```json
 {
   "job_id": "job_20251118_143022_abc123",
@@ -622,6 +907,7 @@ GET /api/jobs/{job_id}
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "job_20251118_143022_abc123",
@@ -657,6 +943,7 @@ GET /api/jobs/{job_id}/analysis
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "job_20251118_143022_abc123",
@@ -665,7 +952,7 @@ GET /api/jobs/{job_id}/analysis
     "detection_quality": 0.89,
     "joint_smoothness": 0.68,
     "com_stability": 0.71,
-    "contact_count": 0.80,
+    "contact_count": 0.8,
     "hip_wall_alignment": 0.76
   },
   "recommendations": [
@@ -688,6 +975,7 @@ GET /api/jobs/{job_id}/ml_predictions
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "job_20251118_143022_abc123",
@@ -715,6 +1003,7 @@ GET /api/jobs/{job_id}/route_grade
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "job_20251118_143022_abc123",
@@ -761,6 +1050,7 @@ Content-Type: application/json
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "train_20251118_150000_xyz789",
@@ -769,11 +1059,13 @@ Content-Type: application/json
 ```
 
 **Check Training Status**:
+
 ```http
 GET /api/training/jobs/{job_id}
 ```
 
 **Response**:
+
 ```json
 {
   "job_id": "train_20251118_150000_xyz789",
@@ -792,18 +1084,21 @@ GET /api/training/jobs/{job_id}
 ### Web UI Features
 
 **Main Page** (`/`):
+
 - Video upload form with YOLO configuration
 - Job status table with real-time updates
 - Inline pose visualization previews
 - Download links for all artifacts
 
 **Training Page** (`/training`):
+
 - Features file upload
 - Training parameter configuration
 - Job status and metrics display
 - Model download links
 
 **Route Grading Page** (`/grading`) — NEW:
+
 - Route selection dropdown (completed jobs only)
 - Predicted difficulty grade display (V0-V10)
 - Color-coded difficulty indicators (green=easy, red=hard)
@@ -812,6 +1107,7 @@ GET /api/training/jobs/{job_id}
 - Gym calibration display
 
 **Efficiency & Recommendations Card**:
+
 - Overall efficiency score with color coding
 - Component breakdown (7 metrics)
 - Next-hold recommendations with visual indicators
@@ -824,6 +1120,7 @@ GET /api/training/jobs/{job_id}
 ### Current State
 
 **XGBoost Baseline** ([`scripts/train_xgboost.py`](../scripts/train_xgboost.py)):
+
 - Binary classification for pose quality (`detection_score`)
 - Input: Frame-level features from `pose_features.json`
 - Output: Trained model saved to `models/xgb_pose.json`
@@ -838,6 +1135,7 @@ python scripts/train_xgboost.py \
 ```
 
 **Supported Parameters**:
+
 - `--early-stopping-rounds`: Early stopping patience (default: 10)
 - `--tree-method`: `hist` (CPU) or `gpu_hist` (GPU acceleration)
 - `--test-size`: Train/test split ratio (default: 0.2)
@@ -849,6 +1147,7 @@ python scripts/train_xgboost.py \
 **Status**: Fully implemented with training, evaluation, and inference pipelines
 
 **Architecture**:
+
 ```
 Input: [T=32 frames, F=60 features]
   ↓
@@ -861,6 +1160,7 @@ Attention Pooling (optional)
 ```
 
 **Features** (60 dimensions):
+
 - Joint positions (x, y) for 8 selected joints: 16 features
 - Joint velocities (vx, vy): 16 features
 - Joint accelerations (ax, ay): 16 features
@@ -872,6 +1172,7 @@ Attention Pooling (optional)
 - Efficiency: 1 feature
 
 **Training**:
+
 ```bash
 # Train BiLSTM model
 python scripts/train_model.py \
@@ -884,6 +1185,7 @@ python scripts/train_model.py \
 ```
 
 **Evaluation**:
+
 ```bash
 # Evaluate model (auto-detects model type)
 python scripts/evaluate_model.py \
@@ -893,6 +1195,7 @@ python scripts/evaluate_model.py \
 ```
 
 **Output Metrics**:
+
 - Efficiency: MAE, RMSE, R², correlation coefficient
 - Action: Top-1 accuracy, per-class accuracy, confusion matrix
 
@@ -901,6 +1204,7 @@ python scripts/evaluate_model.py \
 **Status**: Fully implemented alongside BiLSTM, supports model selection via CLI
 
 **Architecture**:
+
 ```
 Input: [T=32 frames, F=60 features]
   ↓
@@ -917,12 +1221,14 @@ Pooling (mean/max/cls)
 ```
 
 **Key Features**:
+
 - Multi-head self-attention (4-8 heads)
 - Positional encoding (sinusoidal or learnable)
 - Configurable pooling strategies (mean, max, cls token)
 - Same feature set as BiLSTM
 
 **Training**:
+
 ```bash
 # Train Transformer model
 python scripts/train_model.py \
@@ -937,6 +1243,7 @@ python scripts/train_model.py \
 ```
 
 **Model Selection**:
+
 - Unified training script: `scripts/train_model.py` with `--model-type` flag
 - Auto-detection in evaluation and inference
 - Backward compatible: `train_bilstm.py` still works (wrapper)
@@ -948,6 +1255,7 @@ python scripts/train_model.py \
 **Purpose**: Predict route difficulty grade from video analysis
 
 **Features** (20+ route-level features):
+
 - Hold density: Holds per square meter
 - Hold spacing: Mean/median/std/min/max distances
 - Wall angle: From IMU or vision
@@ -957,6 +1265,7 @@ python scripts/train_model.py \
 - Duration: Total climbing time
 
 **Training**:
+
 ```bash
 # Train route grader model
 python scripts/train_route_grader.py \
@@ -968,6 +1277,7 @@ python scripts/train_route_grader.py \
 ```
 
 **Expected Data Structure**:
+
 ```
 data/routes_annotated/
   route1/
@@ -980,6 +1290,7 @@ data/routes_annotated/
 ```
 
 **Model Usage**:
+
 ```python
 from pose_ai.ml.route_grading import RouteDifficultyModel, extract_route_features
 
@@ -995,6 +1306,7 @@ grade, confidence = model.predict_with_confidence(features)
 ```
 
 **Gym Calibration**:
+
 ```python
 from pose_ai.ml.route_grading import GymGradeCalibration
 
@@ -1004,6 +1316,7 @@ calibrated = calibration.calibrate(5.2)
 ```
 
 **Default Grade Mapping**:
+
 - V0-V2: Beginner
 - V3-V4: Intermediate
 - V5-V6: Advanced
@@ -1015,12 +1328,14 @@ calibrated = calibration.calibrate(5.2)
 **Module**: [`src/pose_ai/ml/dataset.py`](../src/pose_ai/ml/dataset.py)
 
 **Features**:
+
 - Sliding windows: length T=32, stride=1 (configurable)
 - Z-score normalization per feature dimension
 - Next-action label extraction with lookahead window (5 frames)
 - Train/val/test split support (default 70/20/10)
 
 **Usage**:
+
 ```python
 from pose_ai.ml.dataset import create_datasets_from_directory
 
@@ -1057,7 +1372,7 @@ python -m ipykernel install --user --name 6156-capstone --display-name "6156 (py
 
 1. **Environment Setup**: Imports and path configuration
 2. **Frame Extraction Demo**: Extract frames from sample video
-3. **Hold Detection Demo** (Cells 24-25): 
+3. **Hold Detection Demo** (Cells 24-25):
    - YOLOv8 inference
    - DBSCAN clustering
    - Visualization
@@ -1084,23 +1399,27 @@ All cells are ready to execute in order. Markdown cells provide explanations; co
 ### Current Limitations
 
 1. **✅ Contact Inference**: FULLY IMPLEMENTED
+
    - Hysteresis (r_on/r_off) ✅
    - Velocity filtering ✅
    - Minimum duration (≥3 frames) ✅
    - Smear detection ✅
 
 2. **✅ Efficiency Scoring**: FULLY IMPLEMENTED
+
    - 7-component physics-based formula ✅
    - Support polygon with ConvexHull ✅
    - Technique detection (bicycle, back-flag, drop-knee) ✅
    - Technique bonuses integrated ✅
 
 3. **✅ Step Segmentation**: FULLY IMPLEMENTED
+
    - Contact-based segmentation ✅
    - Duration constraints (0.2-4s) ✅
    - Step labels (Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish) ✅
 
 4. **✅ Next-Action Recommendations**: RULE-BASED PLANNER IMPLEMENTED
+
    - Basic distance heuristic available
    - Advanced planner with efficiency simulation ✅
    - Support polygon constraints ✅
@@ -1108,6 +1427,7 @@ All cells are ready to execute in order. Markdown cells provide explanations; co
    - **Future**: BiLSTM/Transformer model (v2)
 
 5. **Hold Detection**: Functional but not optimized
+
    - Generic YOLOv8n/m (mAP ≥ 0.60/0.68)
    - No hold type classification yet
    - **Planned**: Transfer learning, type classification (crimp, sloper, jug, etc.)
@@ -1119,14 +1439,17 @@ All cells are ready to execute in order. Markdown cells provide explanations; co
 ### Known Issues
 
 1. **MediaPipe z-coordinate**: Relative depth only, not absolute
+
    - Wall distance requires calibration or learned proxy
    - Current `com_perp_wall` is approximate
 
 2. **Viewpoint Sensitivity**: Strong angle changes reduce accuracy
+
    - Recommend fixed camera position
    - Standardize capture guidelines
 
 3. **Frame Blur**: No automatic filtering
+
    - Motion blur affects pose detection quality
    - **Planned**: Auto-detect and skip blurry frames
 
@@ -1149,17 +1472,20 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 ### Short-Term (Next 2-3 Weeks)
 
 1. **Advanced Contact Inference**:
+
    - Implement hysteresis (r_on/r_off)
    - Add velocity condition
    - Minimum duration filter
    - Smear detection
 
 2. **Step Segmentation**:
+
    - Contact-based step boundaries
    - Duration constraints (0.2-4s)
    - Segment labeling (Reach, Stabilize, FootAdjust, DynamicMove, Rest, Finish)
 
 3. **Efficiency Enhancement**:
+
    - Support polygon stability
    - Path efficiency metric
    - Jerk/smoothness penalties
@@ -1173,18 +1499,21 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 ### Medium-Term (1-2 Months)
 
 1. **BiLSTM Multitask Model**:
+
    - Dataset builder (sliding windows)
    - Weak label generation
    - Training pipeline
    - Evaluation metrics
 
 2. **Rule-Based Planner v1**:
+
    - Candidate hold sampling
    - Efficiency simulation
    - Support polygon constraints
    - Reach/crossing checks
 
 3. **Technique Pattern Detection**:
+
    - Bicycle detection
    - Back-flag detection
    - Drop-knee detection
@@ -1198,17 +1527,20 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 ### Long-Term (3+ Months)
 
 1. **Transformer/TCN Models**:
+
    - Architecture comparison
    - Hold-cluster prediction
    - Temporal attention analysis
 
 2. **Advanced Features**:
+
    - Multi-sensor fusion (IMU, force plates)
    - Climber profiling and personalization
    - Route difficulty estimation
    - Collaborative filtering from community data
 
 3. **Production Readiness**:
+
    - Model versioning and registry
    - A/B testing framework
    - Real-time inference optimization
@@ -1231,6 +1563,7 @@ See [`IMPLEMENTATION_BACKLOG.md`](IMPLEMENTATION_BACKLOG.md) for detailed roadma
 - **Tests**: [`tests/unit/`](../tests/unit/) — Unit test suite
 
 **Note**: The following documents have been consolidated into this guide:
+
 - `efficiency_calculation.md` → See [Appendix A: Efficiency Calculation Specification](#appendix-a-efficiency-calculation-specification)
 - `beta_model_plan.md` → See [Appendix B: Project Roadmap](#appendix-b-project-roadmap)
 - `archive/TESTING_GUIDE.md` → See [Appendix C: Testing Guide](#appendix-c-testing-guide)
@@ -1262,6 +1595,7 @@ Contact is determined by **distance**, **velocity**, and **temporal hysteresis**
 6. **Technique Patterns**: Bicycle, back-flag, drop-knee detection with confidence scores (0–1)
 
 **Constants**:
+
 - `r_on = 0.22 × body_scale`
 - `r_off = 0.28 × body_scale`
 - `v_hold = 0.03 × body_scale/fps`
@@ -1273,7 +1607,7 @@ Contact is determined by **distance**, **velocity**, and **temporal hysteresis**
 **Frame-level computation, aggregated to step-level**:
 
 ```
-score_eff = w1*stab + w4*eff_path 
+score_eff = w1*stab + w4*eff_path
             - (pen_support + pen_wall + pen_jerk + pen_reach)
             + technique_bonus
 ```
@@ -1281,28 +1615,34 @@ score_eff = w1*stab + w4*eff_path
 **Component Details**:
 
 1. **Support Polygon Stability** (w1=0.35):
+
    - Build convex hull from contact points
    - Compute `dist(COM, polygon)` normalized by body_scale
    - `stab = exp(-α × dist_normalized)` where α=4.0
 
 2. **Support Count/Switch Penalties** (w2=0.20):
+
    - Strong penalty if `n_support < 2`
    - Penalty for frequent contact switching
 
 3. **Wall-Body Distance Penalty** (w3=0.10):
+
    - `pen_wall = w3 × ReLU(z_COM - z_ref)`
    - Proxy for forearm load
 
 4. **Path Efficiency** (w4=0.25):
+
    - `net_disp = ||COM_end - COM_start||`
    - `path_len = Σ||COM_t - COM_{t-1}||`
    - `eff_path = clamp(net_disp / (path_len + ε), 0, 1)`
 
 5. **Smoothness Penalty** (w5=0.07):
+
    - Mean normalized jerk for COM and key limbs
    - Direction change penalties
 
 6. **Reach-Limit Penalty** (w6=0.03):
+
    - Penalize extreme limb extensions
    - `pen_reach = w6 × max(0, reach_norm - τ_reach)`
    - Personalized based on climber flexibility
@@ -1324,6 +1664,7 @@ score_eff = w1*stab + w4*eff_path
 ### Data Representation
 
 **Frame-Level Features**:
+
 - Keypoints: Shoulders, elbows, wrists, hips, knees, ankles (normalized, root-relative)
 - Kinematic derivatives: Velocity, acceleration, jerk
 - COM: Center of mass position, velocity, acceleration
@@ -1331,6 +1672,7 @@ score_eff = w1*stab + w4*eff_path
 - Technique scores: Bicycle, back-flag, drop-knee confidence
 
 **Normalization**:
+
 - Root-relative: Subtract hip center from all joints
 - Scale normalization: Divide by body reference (shoulder width)
 - View normalization: Optional homography to wall coordinate system
@@ -1368,11 +1710,12 @@ score_eff = w1*stab + w4*eff_path
 {
   "video_id": "...",
   "step_id": 7,
-  "t_start": 210, "t_end": 260,
+  "t_start": 210,
+  "t_end": 260,
   "efficiency_score": 0.78,
   "next_action": {
     "limb": "RH",
-    "target": {"type":"cluster","cid":3}
+    "target": { "type": "cluster", "cid": 3 }
   },
   "notes": "mild back-flag, 3-point support"
 }
@@ -1381,17 +1724,20 @@ score_eff = w1*stab + w4*eff_path
 ### Additional Constants & Thresholds
 
 **Temporal**:
+
 - `fps = 25` (recommended frame rate)
 - Step duration: `0.2s ≤ len ≤ 4s`
 - Min contact duration: `min_on_frames = 3`
 
 **Spatial** (normalized by body_scale):
+
 - Distance thresholds: `r_on = 0.22`, `r_off = 0.28`
 - Velocity threshold: `v_hold = 0.03` (× body_scale/fps)
 - Smear detection: `z_eps = 0.03`, `r_smear = 0.25`
 - Technique angles: `θ_bicycle ≈ 60°`, `θ_backflag ≈ 50°`
 
 **Efficiency Weights** (initial values, tune empirically):
+
 - `w1=0.35` (stability), `w2=0.20` (support), `w3=0.10` (wall distance)
 - `w4=0.25` (path efficiency), `w5=0.07` (smoothness), `w6=0.03` (reach)
 
@@ -1441,11 +1787,13 @@ def decide_contact(prev_state, joint_pos, joint_vel, holds, params):
 
 **FPS Normalization**: Resample video to 25fps (25–30 recommended)
 
-**Wall Plane Calibration**: 
+**Wall Plane Calibration**:
+
 - One-time calibration (click wall corners → homography) to estimate wall coordinates
 - Alternative: IMU sensor integration for automatic wall angle (±1° accuracy)
 
-**Hold Detection**: 
+**Hold Detection**:
+
 - Start with manual/semi-auto labels
 - YOLO/segmentation for automated detection (YOLOv8n/m with DBSCAN clustering)
 
@@ -1475,6 +1823,7 @@ def decide_contact(prev_state, joint_pos, joint_vel, holds, params):
 ### Implementation Status (November 2025)
 
 **✅ Completed Features**:
+
 - Hold Detection: YOLOv8n/m with DBSCAN clustering and temporal tracking
 - Wall Angle: IMU sensor integration (±1° accuracy) with vision fallback
 - Efficiency Scoring: 7-component physics-based metric with technique bonuses
@@ -1488,10 +1837,12 @@ def decide_contact(prev_state, joint_pos, joint_vel, holds, params):
 - Route Difficulty Estimation: XGBoost model for V0-V10 prediction
 
 **🔄 In Progress**:
+
 - Model training on real climbing data
 - Performance comparison: BiLSTM vs Transformer
 
 **📋 Planned**:
+
 - Production infrastructure (CI/CD, monitoring)
 - Advanced wall calibration (RANSAC, multi-view)
 - Climber profiling database (external app integration)
@@ -1499,20 +1850,24 @@ def decide_contact(prev_state, joint_pos, joint_vel, holds, params):
 ### Development Phases
 
 **Phase 1**: Core pipeline (✅ Completed)
+
 - Frame extraction, pose estimation, hold detection
 - Basic efficiency scoring and recommendations
 
 **Phase 2**: Advanced features (✅ Completed)
+
 - Advanced contact inference, step segmentation
 - Full efficiency formula, rule-based planner
 - Hold type classification, ML models
 
 **Phase 3**: Personalization & grading (✅ Completed)
+
 - IMU sensor integration
 - Climber personalization
 - Route difficulty estimation
 
 **Phase 4**: Production readiness (🔄 Planned)
+
 - CI/CD pipeline
 - Monitoring and logging
 - Model registry and versioning
@@ -1549,6 +1904,7 @@ Comprehensive testing documentation for all pipeline steps. Each step includes i
 ### Validation Criteria
 
 Each step has specific validation criteria:
+
 - **Frame Extraction**: Frame count, sequential timestamps, readable images
 - **Pose Estimation**: 33 landmarks per frame, valid coordinates, detection scores
 - **Hold Detection**: Hold count > 0, valid coordinates, confidence scores

@@ -2,28 +2,30 @@
 
 Climbing video analysis system with pose estimation, hold detection, efficiency scoring, and next-action recommendations.
 
-**Complete Documentation**: See [PIPELINE_GUIDE.md](docs/PIPELINE_GUIDE.md) for comprehensive system overview, API reference, and implementation details.
-
 **Project Planning**:
 
 - [Project Backlog](https://docs.google.com/spreadsheets/d/113DbJu6Vg53PxX8Kgu5pkwsuLrqYH-i9JJcEuDvWjus/edit?gid=1139408620#gid=1139408620)
 - [Sprint Backlog](https://github.com/users/harrisonkimdev/projects/9/views/1?sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=221588758&sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=Assignees)
-- [Implementation Backlog](docs/IMPLEMENTATION_BACKLOG.md) — Detailed feature roadmap
+- [Implementation Backlog](archive/IMPLEMENTATION_BACKLOG.md) — Detailed feature roadmap
 
 ---
 
 ## Features
 
-- **Pose Estimation**: MediaPipe 33-landmark detection
-- **Hold Detection**: YOLOv8n/m with DBSCAN clustering and temporal tracking
+- **Video Processing**: Extract frames using interval-based, motion-based, or motion+pose similarity methods
+- **YOLO Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions
+- **Color-Based Route Grouping**: Automatically group holds by color to identify climbing routes/problems
+- **Pose Estimation**: MediaPipe 33-landmark detection with confidence filtering
+- **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering and temporal tracking
 - **Hold Type Classification**: YOLOv8 fine-tuning for hold types (crimp, sloper, jug, pinch, foot_only, volume)
-- **Wall Angle**: Automatic estimation (Hough + PCA)
+- **Wall Angle**: IMU sensor integration (±1° accuracy) with vision-based fallback (±5°)
 - **Efficiency Scoring**: 7-component physics-based metric with technique bonuses
-- **Next-Action Recommendations**: Rule-based planner with hold type awareness
-- **ML Models**: BiLSTM and Transformer multitask models (efficiency + next-action)
-- **Web UI**: FastAPI with real-time job status and results
-- **Cloud Storage**: Optional GCS integration for videos/frames/models
-- **Training UI**: XGBoost model training with parameter tuning
+- **Climber Personalization**: Height, wingspan, and flexibility parameters for personalized recommendations
+- **Next-Action Recommendations**: Rule-based planner with hold type awareness and personalized reach constraints
+- **ML Models**: BiLSTM and Transformer multitask models for efficiency and next-action prediction
+- **Route Difficulty Estimation**: XGBoost model for V0-V10 grade prediction
+- **Web UI**: FastAPI with background job management, real-time status updates, and grading UI
+- **Cloud Storage**: Optional GCS integration for videos, frames, and models
 
 ---
 
@@ -74,8 +76,38 @@ conda run -n 6156-capstone env PYTHONPATH=src python scripts/run_pipeline.py Bet
 
 #### 1. Extract Frames
 
+**Interval-based (default)**:
+
 ```bash
 conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py BetaMove/videos --output data/frames --interval 1.5
+```
+
+**Motion-based**:
+
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py BetaMove/videos --output data/frames \
+  --method motion \
+  --motion-threshold 5.0 \
+  --min-frame-interval 5 \
+  --initial-sampling-rate 0.1
+```
+
+**Motion + Pose Similarity**:
+
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py BetaMove/videos --output data/frames \
+  --method motion_pose \
+  --motion-threshold 5.0 \
+  --similarity-threshold 0.8 \
+  --min-frame-interval 5 \
+  --initial-sampling-rate 0.1
+```
+
+**With YOLO Segmentation**:
+
+```bash
+conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py BetaMove/videos --output data/frames \
+  --segmentation --seg-model yolov8n-seg.pt
 ```
 
 #### 2. Pose Estimation
@@ -230,13 +262,87 @@ Run the pipeline from a browser via FastAPI.
 
 ### API Endpoints
 
-See [PIPELINE_GUIDE.md](docs/PIPELINE_GUIDE.md#web-api--ui) for complete API documentation:
+#### Upload Video
 
-- `POST /api/upload` — Upload video files
-- `POST /api/jobs` — Create pipeline job
+```http
+POST /api/upload
+Content-Type: multipart/form-data
+
+file: <video_file>
+```
+
+#### Create Pipeline Job
+
+```http
+POST /api/jobs
+Content-Type: application/json
+
+{
+  "video_dir": "data/videos",
+  "output_dir": "data/frames",
+  "interval": 1.5,
+  "metadata": {
+    "route_name": "V5 Problem",
+    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
+    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "climber_height": 175.0,
+    "climber_wingspan": 180.0,
+    "climber_flexibility": 0.7
+  },
+  "yolo": {
+    "enabled": true,
+    "model_name": "yolov8n.pt",
+    "min_confidence": 0.35
+  },
+  "frame_extraction": {
+    "method": "motion_pose",
+    "motion_threshold": 5.0,
+    "similarity_threshold": 0.8,
+    "min_frame_interval": 5,
+    "use_optical_flow": true,
+    "use_pose_similarity": true,
+    "initial_sampling_rate": 0.1
+  },
+  "segmentation": {
+    "enabled": true,
+    "method": "yolo",
+    "model_name": "yolov8n-seg.pt",
+    "export_masks": true,
+    "group_by_color": true,
+    "hue_tolerance": 10,
+    "sat_tolerance": 50,
+    "val_tolerance": 50
+  }
+}
+```
+
+**Frame Extraction Options**:
+
+- `method`: `"interval"` (time-based), `"motion"` (motion-based), or `"motion_pose"` (motion + pose similarity)
+- `motion_threshold`: Minimum motion score (default: 5.0)
+- `similarity_threshold`: Maximum pose similarity for `motion_pose` method (default: 0.8)
+- `min_frame_interval`: Minimum frames between selections (default: 5)
+- `use_optical_flow`: Enable optical flow for motion detection (default: true)
+- `use_pose_similarity`: Enable pose similarity filtering (default: true, only for `motion_pose`)
+- `initial_sampling_rate`: Initial frame sampling rate in seconds (default: 0.1)
+
+**Segmentation Options**:
+
+- `enabled`: Enable YOLO segmentation (default: false)
+- `method`: Segmentation method, currently only `"yolo"` (default: "yolo")
+- `model_name`: YOLO segmentation model name (default: "yolov8n-seg.pt")
+- `export_masks`: Export segmentation masks as images (default: true)
+- `group_by_color`: Group holds by color to identify routes (default: true)
+- `hue_tolerance`: Hue tolerance for color clustering (default: 10)
+- `sat_tolerance`: Saturation tolerance for color clustering (default: 50)
+- `val_tolerance`: Value tolerance for color clustering (default: 50)
+
+#### Other Endpoints
+
 - `GET /api/jobs/{job_id}` — Get job status and artifacts
 - `GET /api/jobs/{job_id}/analysis` — Get efficiency scores and recommendations
 - `GET /api/jobs/{job_id}/ml_predictions` — Get ML predictions
+- `GET /api/jobs/{job_id}/route_grade` — Get route difficulty grade (V0-V10)
 - `DELETE /api/jobs/{job_id}` — Clear job
 - `POST /api/training/jobs` — Create training job
 - `GET /api/training/jobs/{job_id}` — Get training status
@@ -282,22 +388,225 @@ Options: `--kind frames|models`, `--bucket`, `--prefix`
 
 ## Command Reference
 
-| Task                | Command                  | Key Options                               |
-| ------------------- | ------------------------ | ----------------------------------------- |
-| **Pipeline**        |                          |                                           |
-| Extract frames      | `extract_frames.py`      | `--interval`, `--output`                  |
-| Pose estimation     | `run_pose_estimation.py` | `--frames-root`                           |
-| Feature export      | `run_feature_export.py`  | `<manifest.json>`                         |
-| Segment metrics     | `run_segment_report.py`  | `<manifest.json>`                         |
-| Full pipeline       | `run_pipeline.py`        | `--interval`, `--out`                     |
-| **Hold Annotation** |                          |                                           |
-| Annotate holds      | `annotate_holds.py`      | `--output`                                |
-| Train YOLO holds    | `train_yolo_holds.py`    | `--data`, `--model`, `--epochs`           |
-| **ML Training**     |                          |                                           |
-| Train BiLSTM        | `train_model.py`         | `--model-type bilstm`, `--hidden-dim`     |
-| Train Transformer   | `train_model.py`         | `--model-type transformer`, `--num-heads` |
-| Evaluate model      | `evaluate_model.py`      | `--model`, `--split`, `--data`            |
-| **XGBoost**         |                          |                                           |
-| Train XGBoost       | `train_xgboost.py`       | `--label-column`, `--model-out`           |
-| **Visualization**   |                          |                                           |
-| Visualize pose      | `visualize_pose.py`      | `--min-score`, `--min-visibility`         |
+| Task                | Command                  | Key Options                                                                                            |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **Pipeline**        |                          |                                                                                                        |
+| Extract frames      | `extract_frames.py`      | `--interval`, `--output`, `--method`, `--motion-threshold`, `--similarity-threshold`, `--segmentation` |
+| Pose estimation     | `run_pose_estimation.py` | `--frames-root`                                                                                        |
+| Feature export      | `run_feature_export.py`  | `<manifest.json>`                                                                                      |
+| Segment metrics     | `run_segment_report.py`  | `<manifest.json>`                                                                                      |
+| Full pipeline       | `run_pipeline.py`        | `--interval`, `--out`                                                                                  |
+| **Hold Annotation** |                          |                                                                                                        |
+| Annotate holds      | `annotate_holds.py`      | `--output`                                                                                             |
+| Train YOLO holds    | `train_yolo_holds.py`    | `--data`, `--model`, `--epochs`                                                                        |
+| **ML Training**     |                          |                                                                                                        |
+| Train BiLSTM        | `train_model.py`         | `--model-type bilstm`, `--hidden-dim`                                                                  |
+| Train Transformer   | `train_model.py`         | `--model-type transformer`, `--num-heads`                                                              |
+| Evaluate model      | `evaluate_model.py`      | `--model`, `--split`, `--data`                                                                         |
+| **XGBoost**         |                          |                                                                                                        |
+| Train XGBoost       | `train_xgboost.py`       | `--label-column`, `--model-out`                                                                        |
+| **Visualization**   |                          |                                                                                                        |
+| Visualize pose      | `visualize_pose.py`      | `--min-score`, `--min-visibility`                                                                      |
+
+---
+
+## System Architecture
+
+```
+┌─────────────┐
+│  Video      │
+│  Upload     │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────┐
+│  Pipeline Runner (webapp/pipeline_runner.py)            │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ 1. Frame Extraction (scripts/extract_frames.py) │   │
+│  │    - Interval-based (default)                    │   │
+│  │    - Motion-based (optical flow)                 │   │
+│  │    - Motion + Pose similarity                    │   │
+│  └────────────────┬────────────────────────────────┘   │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 2. YOLO Segmentation (segmentation/             │  │
+│  │    yolo_segmentation.py) - OPTIONAL              │  │
+│  │    - Wall, holds, climber pixel-level masks     │  │
+│  │    - Color-based route grouping                 │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 3. Hold Detection (service/hold_extraction.py)   │  │
+│  │    - YOLOv8 inference on frames                  │  │
+│  │    - DBSCAN spatial clustering                   │  │
+│  │    - Temporal tracking (IoU + Kalman)            │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 4. Wall Angle Estimation (wall/angle.py)         │  │
+│  │    - IMU sensor data (priority)                  │  │
+│  │    - Hough line detection + RANSAC               │  │
+│  │    - PCA fallback for edge-rich frames           │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 5. Pose Estimation (scripts/run_pose_estimation) │  │
+│  │    - MediaPipe 33 landmarks per frame            │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 6. Feature Extraction (features/aggregation.py)  │  │
+│  │    - Joint angles, COM, velocities               │  │
+│  │    - Hold proximity & contact inference          │  │
+│  │    - Wall alignment metrics                      │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 7. Segmentation (segmentation/rule_based.py)     │  │
+│  │    - Movement vs rest classification             │  │
+│  └────────────────┬─────────────────────────────────┘  │
+│                   ▼                                      │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 8. Efficiency Scoring (recommendation/           │  │
+│  │    efficiency.py)                                │  │
+│  │    - 7-component weighted score                  │  │
+│  │    - Next-hold recommendations                   │  │
+│  └──────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────┐
+│  Results    │
+│  - JSON     │
+│  - Web UI   │
+│  - GCS      │
+└─────────────┘
+```
+
+---
+
+## Data Pipeline
+
+### Frame Extraction Methods
+
+#### Interval-Based (Default)
+
+Extracts frames at specified time intervals. Simple and fast.
+
+#### Motion-Based
+
+Uses optical flow to detect motion and select frames with significant movement. Better for capturing dynamic actions.
+
+#### Motion + Pose Similarity
+
+Combines motion detection with pose similarity to select diverse frames. Best for capturing key poses while avoiding redundancy.
+
+**Algorithm**:
+
+1. Extract frames at high rate (initial_sampling_rate)
+2. Compute motion scores using optical flow
+3. Filter frames by motion threshold
+4. Run pose estimation on high-motion frames
+5. Compare pose keypoints between consecutive frames
+6. Select frames where pose similarity < threshold (significant pose change)
+7. Apply minimum interval constraint
+
+### YOLO Segmentation
+
+Uses YOLO segmentation model to separate wall, holds, and climber regions at pixel level.
+
+**Features**:
+
+- Pixel-level masks for each class (wall, holds, climber)
+- Color-based route grouping (same color = same route/problem)
+- Automatic hold color extraction and clustering
+
+**Output**:
+
+- `masks/`: Binary mask images for each class
+- `segmentation_results.json`: Metadata with mask paths
+- `routes.json`: Color-based route groupings
+
+### Hold Detection
+
+YOLOv8-based detection with:
+
+- DBSCAN spatial clustering for stable hold positions
+- Temporal tracking (IoU + Kalman filter) for consistency
+- Hold type classification (crimp, sloper, jug, pinch, foot_only, volume)
+
+### Wall Angle Estimation
+
+**Priority Order**:
+
+1. **IMU Sensor Data** (if provided): Most accurate (±1°)
+2. **Vision-based Estimation** (fallback): Hough + PCA (±5°)
+
+### Feature Extraction
+
+Computes derived features from pose landmarks:
+
+- Joint angles (elbow, knee, hip, shoulder)
+- Center of Mass (COM) position, velocity, acceleration
+- Hold relationships (distance, contact inference)
+- Wall alignment metrics
+- Kinematic derivatives (velocity, acceleration, jerk)
+
+### Efficiency Scoring
+
+7-component physics-based metric:
+
+1. **Support Polygon Stability** (0.35): COM distance to convex hull
+2. **Path Efficiency** (0.25): Net displacement vs actual path length
+3. **Support Penalty** (0.20): Penalty if support count < 2
+4. **Wall Penalty** (0.10): COM distance from wall
+5. **Jerk Penalty** (0.07): Smoothness based on jerk
+6. **Reach Penalty** (0.03): Extreme limb extensions
+7. **Technique Bonuses**: Bicycle (0.05) + Back-flag (0.05) + Drop-knee (0.03)
+
+**Score Interpretation**:
+
+- 0.8-1.0: Excellent efficiency
+- 0.6-0.8: Good efficiency
+- 0.4-0.6: Moderate efficiency
+- 0.2-0.4: Poor efficiency
+- 0.0-0.2: Very poor efficiency
+
+---
+
+## Technology Stack
+
+- **Core**: Python 3.10+
+- **Computer Vision**: MediaPipe 0.10.9, OpenCV, Ultralytics YOLOv8
+- **ML**: PyTorch (BiLSTM, Transformer), XGBoost, scikit-learn
+- **Web**: FastAPI, Uvicorn, Jinja2
+- **Storage**: Local filesystem + optional Google Cloud Storage
+- **Testing**: pytest
+
+---
+
+## Limitations & Known Issues
+
+### Current Limitations
+
+- **MediaPipe z-coordinate**: Relative depth only, not absolute
+- **Viewpoint Sensitivity**: Strong angle changes reduce accuracy
+- **Frame Blur**: No automatic filtering for motion blur
+- **Hold Tracking**: Frame-by-frame detection (temporal tracking available but optional)
+
+### Performance Targets
+
+- Hold detection mAP@0.5: yolov8n ≥ 0.60, yolov8m ≥ 0.68
+- Wall angle MAE: vertical ≤ 5°, overhang ≤ 8° (vision-based), ≤ 1° (IMU)
+- Efficiency vs expert correlation: ≥ 0.5
+- Next-hold top-3 hit rate: ≥ 0.6
+
+---
+
+## References
+
+- **Implementation Backlog**: [`archive/IMPLEMENTATION_BACKLOG.md`](archive/IMPLEMENTATION_BACKLOG.md) — Detailed feature roadmap
+- **Source Code**: [`src/pose_ai/`](src/pose_ai/) — Core library modules
+- **Scripts**: [`scripts/`](scripts/) — CLI tools for pipeline stages
+- **Web Application**: [`webapp/`](webapp/) — FastAPI server and UI
+- **Tests**: [`tests/unit/`](tests/unit/) — Unit test suite
