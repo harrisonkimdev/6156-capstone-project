@@ -2,9 +2,9 @@
 
 Climbing video analysis system with pose estimation, hold detection, efficiency scoring, and next-action recommendations.
 
-**📖 Complete Documentation**: See [PIPELINE_GUIDE.md](docs/PIPELINE_GUIDE.md) for comprehensive system overview, API reference, and implementation details.
+**Complete Documentation**: See [PIPELINE_GUIDE.md](docs/PIPELINE_GUIDE.md) for comprehensive system overview, API reference, and implementation details.
 
-**🎯 Project Planning**:
+**Project Planning**:
 
 - [Project Backlog](https://docs.google.com/spreadsheets/d/113DbJu6Vg53PxX8Kgu5pkwsuLrqYH-i9JJcEuDvWjus/edit?gid=1139408620#gid=1139408620)
 - [Sprint Backlog](https://github.com/users/harrisonkimdev/projects/9/views/1?sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=221588758&sortedBy%5Bdirection%5D=asc&sortedBy%5BcolumnId%5D=Assignees)
@@ -50,21 +50,6 @@ conda env update -f environment.yml --prune
 conda create -n 6156-capstone python=3.10 -y
 conda activate 6156-capstone
 pip install -r requirements.txt
-```
-
-### Jupyter Kernel (Optional)
-
-Register a Jupyter kernel for notebooks:
-
-```bash
-conda activate 6156-capstone
-python -m ipykernel install --user --name 6156-capstone --display-name "6156 (py3.10)"
-```
-
-**Or use Make** (one-shot setup with venv):
-
-```bash
-make init VENV=.venv PYTHON=python3.10 KERNEL_NAME=6156-capstone DISPLAY_NAME="6156 (py3.10)"
 ```
 
 ---
