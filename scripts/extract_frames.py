@@ -41,7 +41,11 @@ def extract_from_directory(
     use_pose_similarity: bool = True,
     initial_sampling_rate: float = 0.1,
     segmentation: bool = False,
+    seg_method: str = "yolo",
     seg_model: str = "yolov8n-seg.pt",
+    hsv_hue_tolerance: int = 5,
+    hsv_sat_tolerance: int = 50,
+    hsv_val_tolerance: int = 40,
 ) -> list[FrameExtractionResult]:
     results: list[FrameExtractionResult] = []
     for video_path in iter_video_files(source_dir, recursive=recursive):
@@ -78,16 +82,29 @@ def extract_from_directory(
         # Run segmentation if enabled
         if segmentation and result.frame_directory:
             try:
-                from pose_ai.segmentation.yolo_segmentation import (  # type: ignore
+                from pose_ai.segmentation import (  # type: ignore
+                    HsvSegmentationModel,
                     YoloSegmentationModel,
                     export_segmentation_masks,
                 )
                 
-                LOGGER.info("Running YOLO segmentation...")
                 image_paths = sorted([p for p in result.frame_directory.glob("*.jpg")])
                 if image_paths:
-                    seg_model_instance = YoloSegmentationModel(model_name=seg_model)
-                    seg_results = seg_model_instance.batch_segment_frames(image_paths, conf_threshold=0.25)
+                    if seg_method.lower() == "hsv":
+                        LOGGER.info("Running HSV segmentation...")
+                        seg_model_instance = HsvSegmentationModel(
+                            hue_tolerance=hsv_hue_tolerance,
+                            sat_tolerance=hsv_sat_tolerance,
+                            val_tolerance=hsv_val_tolerance,
+                        )
+                        seg_results = seg_model_instance.batch_segment_frames(
+                            image_paths,
+                            target_classes=["wall", "hold"],
+                        )
+                    else:  # yolo
+                        LOGGER.info("Running YOLO segmentation...")
+                        seg_model_instance = YoloSegmentationModel(model_name=seg_model)
+                        seg_results = seg_model_instance.batch_segment_frames(image_paths, conf_threshold=0.25)
                     export_segmentation_masks(seg_results, result.frame_directory, export_images=True, export_json=True)
                     LOGGER.info("Segmentation masks exported to %s", result.frame_directory / "masks")
             except Exception as exc:
@@ -166,13 +183,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--segmentation",
         action="store_true",
-        help="Enable YOLO segmentation after frame extraction.",
+        help="Enable segmentation after frame extraction.",
+    )
+    parser.add_argument(
+        "--seg-method",
+        type=str,
+        choices=["yolo", "hsv"],
+        default="yolo",
+        help="Segmentation method: 'yolo' or 'hsv' (default: yolo).",
     )
     parser.add_argument(
         "--seg-model",
         type=str,
         default="yolov8n-seg.pt",
-        help="YOLO segmentation model name (default: yolov8n-seg.pt).",
+        help="YOLO segmentation model name (default: yolov8n-seg.pt). Only used for 'yolo' method.",
+    )
+    parser.add_argument(
+        "--hsv-hue-tolerance",
+        type=int,
+        default=5,
+        help="HSV method: Hue tolerance for hold detection (default: 5).",
+    )
+    parser.add_argument(
+        "--hsv-sat-tolerance",
+        type=int,
+        default=50,
+        help="HSV method: Saturation tolerance for hold detection (default: 50).",
+    )
+    parser.add_argument(
+        "--hsv-val-tolerance",
+        type=int,
+        default=40,
+        help="HSV method: Value tolerance for hold detection (default: 40).",
     )
     parser.add_argument(
         "--recursive",
@@ -218,7 +260,11 @@ def main() -> None:
         use_pose_similarity=args.use_pose_similarity,
         initial_sampling_rate=args.initial_sampling_rate,
         segmentation=args.segmentation,
+        seg_method=args.seg_method,
         seg_model=args.seg_model,
+        hsv_hue_tolerance=args.hsv_hue_tolerance,
+        hsv_sat_tolerance=args.hsv_sat_tolerance,
+        hsv_val_tolerance=args.hsv_val_tolerance,
     )
 
 

@@ -100,14 +100,18 @@ class YoloOptions(BaseModel):
 
 
 class SegmentationOptions(BaseModel):
-    enabled: bool = Field(False, description="Enable YOLO segmentation")
-    method: str = Field("yolo", description="Segmentation method: 'yolo' or 'none'")
-    model_name: str = Field("yolov8n-seg.pt", description="YOLO segmentation model name")
+    enabled: bool = Field(False, description="Enable segmentation")
+    method: str = Field("yolo", description="Segmentation method: 'yolo', 'hsv', or 'none'")
+    model_name: str = Field("yolov8n-seg.pt", description="YOLO segmentation model name (only for 'yolo' method)")
     export_masks: bool = Field(True, description="Export segmentation masks as images")
     group_by_color: bool = Field(True, description="Group holds by color to identify routes")
     hue_tolerance: int = Field(10, ge=0, le=90, description="Hue tolerance for color grouping")
     sat_tolerance: int = Field(50, ge=0, le=255, description="Saturation tolerance for color grouping")
     val_tolerance: int = Field(50, ge=0, le=255, description="Value tolerance for color grouping")
+    # HSV-specific parameters
+    hsv_hue_tolerance: int = Field(5, ge=0, le=179, description="HSV method: Hue tolerance for hold detection")
+    hsv_sat_tolerance: int = Field(50, ge=0, le=255, description="HSV method: Saturation tolerance for hold detection")
+    hsv_val_tolerance: int = Field(40, ge=0, le=255, description="HSV method: Value tolerance for hold detection")
 
 
 class FrameExtractionOptions(BaseModel):
