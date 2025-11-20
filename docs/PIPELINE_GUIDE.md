@@ -1,7 +1,7 @@
 # Climbing Video Analysis Pipeline — Complete Guide
 
-**Version**: 1.0  
-**Last Updated**: November 18, 2025  
+**Version**: 2.0  
+**Last Updated**: November 20, 2025  
 **Source of Truth**: This document consolidates all project documentation and reflects the current implementation state.
 
 ---
@@ -38,21 +38,26 @@ This system analyzes bouldering climbing videos to:
 
 - **Video Processing**: Extract frames at configurable intervals (no duration limits)
 - **Pose Estimation**: MediaPipe 33-landmark detection with confidence filtering
-- **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering
-- **Wall Angle**: Automatic estimation using Hough line detection + PCA fallback
-- **Efficiency Scoring**: 5-component rule-based metric (detection quality, joint angles, COM stability, contact count, wall alignment)
-- **Recommendations**: Distance-based next-hold suggestions with recency weighting
+- **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering and temporal tracking
+- **Hold Type Classification**: YOLOv8 fine-tuning for hold types (crimp, sloper, jug, pinch, foot_only, volume)
+- **Wall Angle**: IMU sensor integration (±1° accuracy) with vision-based fallback (±5°)
+- **Efficiency Scoring**: 7-component physics-based metric with technique bonuses
+- **Climber Personalization**: Height, wingspan, and flexibility parameters for personalized recommendations
+- **Next-Action Recommendations**: Rule-based planner with hold type awareness and personalized reach constraints
+- **ML Models**: BiLSTM and Transformer multitask models for efficiency and next-action prediction
+- **Route Difficulty Estimation**: XGBoost model for V0-V10 grade prediction
 - **Cloud Storage**: Optional GCS integration for videos, frames, and models
-- **Web Interface**: FastAPI with background job management and real-time status updates
+- **Web Interface**: FastAPI with background job management, real-time status updates, and grading UI
 
 ### Technology Stack
 
 - **Core**: Python 3.10+
 - **Computer Vision**: MediaPipe 0.10.9, OpenCV, Ultralytics YOLOv8
-- **ML**: XGBoost, scikit-learn
+- **ML**: PyTorch (BiLSTM, Transformer), XGBoost, scikit-learn
 - **Web**: FastAPI, Uvicorn, Jinja2
 - **Storage**: Local filesystem + optional Google Cloud Storage
 - **Testing**: pytest
+- **Documentation**: See [TESTING_GUIDE.md](TESTING_GUIDE.md) for comprehensive testing specifications
 
 ---
 
@@ -205,28 +210,38 @@ holds = cluster_holds(detections, eps=30, min_samples=3)
 
 **Module**: [`src/pose_ai/wall/angle.py`](../src/pose_ai/wall/angle.py)
 
-Automatically estimates wall angle from video frames using edge detection and geometric analysis.
+Automatically estimates wall angle from video frames using edge detection and geometric analysis. **Now supports IMU sensor data for improved accuracy.**
 
+**Priority Order**:
+1. **IMU Sensor Data** (if provided): Most accurate (±1°)
+2. **Vision-based Estimation** (fallback): Hough + PCA (±5°)
+
+**IMU Integration**:
 ```python
-from pose_ai.wall.angle import estimate_wall_angle
+from pose_ai.wall.angle import compute_wall_angle_from_imu
 
-angle, confidence = estimate_wall_angle(
-    frame_paths=representative_frames,
-    method="hough"  # or "pca"
+# From quaternion
+result = compute_wall_angle_from_imu(
+    quaternion=[0.7071, 0.0, 0.7071, 0.0]  # [w, x, y, z]
+)
+
+# Or from Euler angles
+result = compute_wall_angle_from_imu(
+    euler_angles=[85.5, 2.0, 0.0]  # [pitch, roll, yaw] in degrees
 )
 ```
 
-**Algorithm**:
+**Vision-based Algorithm** (fallback):
 1. **Hough Line Detection**: Detect vertical/near-vertical lines in edge-filtered frames
 2. **RANSAC Fitting**: Robust line fitting to handle outliers
 3. **PCA Fallback**: Use principal component analysis if insufficient lines detected
 4. **Confidence Scoring**: Based on line consensus and edge density
 
-**Output**: Angle in degrees (0° = vertical, 90° = horizontal overhang), confidence score 0-1
+**Output**: Angle in degrees (0° = horizontal, 90° = vertical), confidence score 0-1
 
 **Typical Performance**:
-- Vertical walls: MAE ≤ 5°
-- Overhangs: MAE ≤ 8°
+- **IMU sensor**: MAE ≤ 1° (highly accurate)
+- **Vision-based**: Vertical walls MAE ≤ 5°, Overhangs MAE ≤ 8°
 
 ### 4. Pose Estimation
 
@@ -292,11 +307,22 @@ python scripts/run_feature_export.py data/frames/video01/manifest.json
    - Contact inference (distance + velocity thresholds)
    - Contact duration and stability
 
-4. **Wall Alignment** (new in current version):
-   - `wall_angle`: Estimated wall inclination
+4. **Wall Alignment**:
+   - `wall_angle`: Estimated wall inclination (from IMU or vision)
    - `hip_alignment_error`: Hip deviation from wall normal
    - `com_along_wall`: COM projection along wall surface
    - `com_perp_wall`: COM distance perpendicular to wall
+
+5. **Climber Personalization** (NEW):
+   - `climber_height`: Height in cm (for body scale normalization)
+   - `climber_wingspan`: Wingspan in cm (for personalized reach constraints)
+   - `climber_flexibility`: Flexibility score 0-1 (for threshold adjustments)
+   - `body_scale_normalized`: Body scale adjusted by height (expected shoulder width = height × 0.16)
+
+**Personalization Effects**:
+- **Body Scale Normalization**: Adjusts for different body proportions using climber height
+- **Reach Constraints**: Personalized reach limits based on wingspan/height ratio and flexibility
+- **Efficiency Scoring**: Flexibility-adjusted reach penalty thresholds (5-10% bonus for flexible climbers)
 
 5. **Kinematics**:
    - Joint velocities (frame-to-frame deltas)
@@ -464,9 +490,10 @@ def compute_efficiency_score(pose_frames, holds, wall_angle):
 - Constraint checking:
   - Support count ≥ 2
   - COM inside/near polygon (tolerance)
-  - Reach limit check
+  - **Personalized reach limit check** (based on wingspan, height, flexibility)
   - No limb crossing
 - Ranking by simulated efficiency gain (Δeff)
+- **Hold type awareness**: Prefers jugs when support is low, crimp/sloper for reach moves
 
 ```python
 from pose_ai.recommendation.planner import NextMovePlanner
@@ -549,12 +576,31 @@ POST /api/jobs
 Content-Type: application/json
 
 {
-  "video_path": "data/uploads/.../video01.mp4",
-  "frame_interval": 1.5,
-  "yolo_model": "yolov8n",
-  "yolo_conf": 0.25
+  "video_dir": "data/videos",
+  "output_dir": "data/frames",
+  "interval": 1.5,
+  "metadata": {
+    "route_name": "V5 Problem",
+    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
+    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "climber_height": 175.0,
+    "climber_wingspan": 180.0,
+    "climber_flexibility": 0.7
+  },
+  "yolo": {
+    "enabled": true,
+    "model_name": "yolov8n.pt",
+    "min_confidence": 0.35
+  }
 }
 ```
+
+**Metadata Fields**:
+- `imu_quaternion`: Device orientation as quaternion [w, x, y, z] (for accurate wall angle)
+- `imu_euler_angles`: Device orientation as Euler angles [pitch, roll, yaw] in degrees
+- `climber_height`: Height in cm (for body scale normalization)
+- `climber_wingspan`: Wingspan in cm (for personalized reach constraints)
+- `climber_flexibility`: Flexibility score 0-1 (for threshold adjustments)
 
 **Response**:
 ```json
@@ -631,7 +677,64 @@ GET /api/jobs/{job_id}/analysis
 }
 ```
 
-#### 5. Clear Job (New)
+#### 5. Get ML Predictions
+
+```http
+GET /api/jobs/{job_id}/ml_predictions
+```
+
+**Response**:
+```json
+{
+  "job_id": "job_20251118_143022_abc123",
+  "model_type": "bilstm",
+  "num_predictions": 25,
+  "predictions": [
+    {
+      "frame_index": 16,
+      "efficiency_score": 0.72,
+      "next_action": "left_hand",
+      "next_action_class": 1,
+      "next_action_probs": [0.1, 0.6, 0.2, 0.05, 0.05]
+    },
+    ...
+  ]
+}
+```
+
+**Note**: Requires trained model at `models/checkpoints/bilstm_multitask.pt` or `transformer_multitask.pt`. Auto-detects model type from checkpoint.
+
+#### 6. Get Route Grade
+
+```http
+GET /api/jobs/{job_id}/route_grade
+```
+
+**Response**:
+```json
+{
+  "job_id": "job_20251118_143022_abc123",
+  "grade": 5.2,
+  "confidence": 0.85,
+  "calibrated_grade": "Advanced (V5)",
+  "features": {
+    "hold_density": 12.5,
+    "hold_count": 25,
+    "hold_spacing_mean": 0.15,
+    "wall_angle": 90.0,
+    "step_count": 8,
+    "avg_efficiency": 0.65,
+    "contact_switches_per_second": 2.3,
+    "hold_type_ratio_jug": 0.4,
+    "route_length": 0.8,
+    "duration_seconds": 12.5
+  }
+}
+```
+
+**Note**: Requires completed pipeline job. Returns `grade: null` if model not trained.
+
+#### 7. Clear Job
 
 ```http
 DELETE /api/jobs/{job_id}
@@ -639,7 +742,7 @@ DELETE /api/jobs/{job_id}
 
 Removes job from active list (does not delete artifacts).
 
-#### 6. Training Jobs
+#### 8. Training Jobs
 
 ```http
 POST /api/training/jobs
@@ -696,9 +799,17 @@ GET /api/training/jobs/{job_id}
 - Job status and metrics display
 - Model download links
 
-**Efficiency & Recommendations Card** (new):
+**Route Grading Page** (`/grading`) — NEW:
+- Route selection dropdown (completed jobs only)
+- Predicted difficulty grade display (V0-V10)
+- Color-coded difficulty indicators (green=easy, red=hard)
+- Confidence indicator with progress bar
+- Feature breakdown grid (hold density, complexity, etc.)
+- Gym calibration display
+
+**Efficiency & Recommendations Card**:
 - Overall efficiency score with color coding
-- Component breakdown (5 metrics)
+- Component breakdown (7 metrics)
 - Next-hold recommendations with visual indicators
 - Wall angle estimate
 
@@ -727,47 +838,197 @@ python scripts/train_xgboost.py \
 - `--tree-method`: `hist` (CPU) or `gpu_hist` (GPU acceleration)
 - `--test-size`: Train/test split ratio (default: 0.2)
 
-### Planned Models (per efficiency_calculation.md)
+### Implemented Models
 
-#### 1. BiLSTM Multitask (v1)
+#### 1. BiLSTM Multitask Model (v1) — ✅ IMPLEMENTED
+
+**Status**: Fully implemented with training, evaluation, and inference pipelines
 
 **Architecture**:
 ```
-Input: [T=32 frames, F features]
+Input: [T=32 frames, F=60 features]
   ↓
-BiLSTM(128-256, 1-2 layers)
+BiLSTM(hidden_dim=128, num_layers=2, bidirectional=True)
   ↓
-Attention Pooling
+Attention Pooling (optional)
   ↓
 ├─ Head1: Efficiency Regression (Huber Loss)
-└─ Head2: Next-Action Classification (CrossEntropy)
+└─ Head2: Next-Action Classification (5 classes, CrossEntropy)
 ```
 
-**Features**:
-- Normalized keypoints (selected joints)
-- Velocities and accelerations
-- COM trajectory
-- Contact embeddings (one-hot or learned)
-- Per-frame efficiency metrics
-- Hold type embeddings
+**Features** (60 dimensions):
+- Joint positions (x, y) for 8 selected joints: 16 features
+- Joint velocities (vx, vy): 16 features
+- Joint accelerations (ax, ay): 16 features
+- COM position and velocity: 4 features
+- Contact states (4 limbs): 4 features
+- Support count: 1 feature
+- Body scale: 1 feature
+- Wall distance: 1 feature
+- Efficiency: 1 feature
 
 **Training**:
-1. Generate weak labels from heuristic efficiency scorer
-2. Pre-train on weak labels
-3. Fine-tune on small human-annotated dataset
-4. Evaluate: MAE/R² (efficiency), top-1/top-3 accuracy (next action)
+```bash
+# Train BiLSTM model
+python scripts/train_model.py \
+  --data data/features \
+  --model-type bilstm \
+  --epochs 100 \
+  --hidden-dim 128 \
+  --num-layers 2 \
+  --device cuda
+```
 
-#### 2. Temporal Transformer / TCN (v2)
+**Evaluation**:
+```bash
+# Evaluate model (auto-detects model type)
+python scripts/evaluate_model.py \
+  --model models/checkpoints/bilstm_multitask.pt \
+  --data data/features \
+  --split test
+```
 
-- Replace BiLSTM with Transformer encoder (2-4 layers, 4-8 heads)
-- Alternative: Temporal Convolutional Network (TCN) for comparison
-- Same multitask heads as v1
-- Refine Head2 to predict next-hold ID or cluster directly
+**Output Metrics**:
+- Efficiency: MAE, RMSE, R², correlation coefficient
+- Action: Top-1 accuracy, per-class accuracy, confusion matrix
 
-**Dataset Builder**:
-- Sliding windows: length T=32, stride=1
-- Inputs: [keypoints, v/a, COM, contacts, efficiency_features]
-- Targets: [efficiency_score, next_action_label]
+#### 2. Transformer Multitask Model (v2) — ✅ IMPLEMENTED
+
+**Status**: Fully implemented alongside BiLSTM, supports model selection via CLI
+
+**Architecture**:
+```
+Input: [T=32 frames, F=60 features]
+  ↓
+Input Projection (if input_dim != d_model)
+  ↓
+Positional Encoding (sinusoidal or learnable)
+  ↓
+Transformer Encoder (2-4 layers, 4-8 heads)
+  ↓
+Pooling (mean/max/cls)
+  ↓
+├─ Head1: Efficiency Regression (Huber Loss)
+└─ Head2: Next-Action Classification (5 classes, CrossEntropy)
+```
+
+**Key Features**:
+- Multi-head self-attention (4-8 heads)
+- Positional encoding (sinusoidal or learnable)
+- Configurable pooling strategies (mean, max, cls token)
+- Same feature set as BiLSTM
+
+**Training**:
+```bash
+# Train Transformer model
+python scripts/train_model.py \
+  --data data/features \
+  --model-type transformer \
+  --epochs 100 \
+  --d-model 128 \
+  --num-layers 4 \
+  --num-heads 8 \
+  --pooling mean \
+  --device cuda
+```
+
+**Model Selection**:
+- Unified training script: `scripts/train_model.py` with `--model-type` flag
+- Auto-detection in evaluation and inference
+- Backward compatible: `train_bilstm.py` still works (wrapper)
+
+#### 3. Route Difficulty Estimation — ✅ IMPLEMENTED
+
+**Status**: XGBoost model for route difficulty prediction (V0-V10)
+
+**Purpose**: Predict route difficulty grade from video analysis
+
+**Features** (20+ route-level features):
+- Hold density: Holds per square meter
+- Hold spacing: Mean/median/std/min/max distances
+- Wall angle: From IMU or vision
+- Move complexity: Step count, efficiency stats, reach penalties, contact switches
+- Hold type distribution: Ratios for jug/crimp/sloper/pinch/foot_only/volume
+- Route length: Vertical distance climbed
+- Duration: Total climbing time
+
+**Training**:
+```bash
+# Train route grader model
+python scripts/train_route_grader.py \
+  --data data/routes_annotated \
+  --model-out models/route_grader.json \
+  --n-estimators 100 \
+  --max-depth 6 \
+  --learning-rate 0.1
+```
+
+**Expected Data Structure**:
+```
+data/routes_annotated/
+  route1/
+    pose_features.json
+    step_efficiency.json
+    holds.json
+    grade.txt  # Ground truth: 5.0 (V5)
+  route2/
+    ...
+```
+
+**Model Usage**:
+```python
+from pose_ai.ml.route_grading import RouteDifficultyModel, extract_route_features
+
+# Extract features
+features = extract_route_features(
+    feature_rows, step_segments, step_efficiency, holds, wall_angle
+)
+
+# Predict grade
+model = RouteDifficultyModel(model_path=Path("models/route_grader.json"))
+grade, confidence = model.predict_with_confidence(features)
+# Returns: (5.2, 0.85)  # V5.2 with 85% confidence
+```
+
+**Gym Calibration**:
+```python
+from pose_ai.ml.route_grading import GymGradeCalibration
+
+calibration = GymGradeCalibration()
+calibrated = calibration.calibrate(5.2)
+# Returns: "Advanced (V5)"
+```
+
+**Default Grade Mapping**:
+- V0-V2: Beginner
+- V3-V4: Intermediate
+- V5-V6: Advanced
+- V7-V8: Expert
+- V9-V10: Elite
+
+### Dataset Builder
+
+**Module**: [`src/pose_ai/ml/dataset.py`](../src/pose_ai/ml/dataset.py)
+
+**Features**:
+- Sliding windows: length T=32, stride=1 (configurable)
+- Z-score normalization per feature dimension
+- Next-action label extraction with lookahead window (5 frames)
+- Train/val/test split support (default 70/20/10)
+
+**Usage**:
+```python
+from pose_ai.ml.dataset import create_datasets_from_directory
+
+train_dataset, val_dataset, test_dataset = create_datasets_from_directory(
+    data_dir="data/features",
+    window_size=32,
+    stride=1,
+    train_split=0.7,
+    val_split=0.2,
+    normalize=True,
+)
+```
 
 ---
 
