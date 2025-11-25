@@ -56,30 +56,18 @@ def _to_repo_url(path: Path) -> str | None:
     return f"/repo/{relative.as_posix()}"
 
 
-def _maybe_upload_raw_video(job: PipelineJob, video_path: Path, log: Callable[[str], None]) -> None:
-    if GCS_MANAGER is None:
-        return
-    try:
-        uri = GCS_MANAGER.upload_raw_video(video_path, upload_id=job.id)
-    except Exception as exc:  # pragma: no cover - depends on cloud credentials
-        log(f"GCS video upload skipped: {exc}")
-        return
-    if uri:
-        job.add_artifact("raw_videos", uri)
-        log(f"Uploaded raw video to {uri}")
+def _upload_raw_video(job: PipelineJob, video_path: Path, log: Callable[[str], None]) -> None:
+    """Upload raw video to GCS. Required operation - will raise exception on failure."""
+    uri = GCS_MANAGER.upload_raw_video(video_path, upload_id=job.id)
+    job.add_artifact("raw_videos", uri)
+    log(f"Uploaded raw video to {uri}")
 
 
-def _maybe_upload_frame_dir(job: PipelineJob, frame_dir: Path, log: Callable[[str], None]) -> None:
-    if GCS_MANAGER is None:
-        return
-    try:
-        uri = GCS_MANAGER.upload_frame_directory(frame_dir, job_id=job.id)
-    except Exception as exc:  # pragma: no cover
-        log(f"GCS frame upload skipped: {exc}")
-        return
-    if uri:
-        job.add_artifact("frames", uri)
-        log(f"Uploaded frames to {uri}")
+def _upload_frame_directory(job: PipelineJob, frame_dir: Path, log: Callable[[str], None]) -> None:
+    """Upload frame directory to GCS. Required operation - will raise exception on failure."""
+    uri = GCS_MANAGER.upload_frame_directory(frame_dir, job_id=job.id)
+    job.add_artifact("frames", uri)
+    log(f"Uploaded frames to {uri}")
 
 
 def run_pipeline_stage(
@@ -144,7 +132,7 @@ def run_pipeline_stage(
         if result.manifest_path is None:
             raise RuntimeError(f"Manifest not written for {video_path}")
         log(f"Saved {result.saved_frames} frames to {result.frame_directory}")
-        _maybe_upload_raw_video(job, result.video_path, log)
+        _upload_raw_video(job, result.video_path, log)
         manifest_path = result.manifest_path
         
         # Run segmentation if enabled
@@ -308,7 +296,7 @@ def run_pipeline_stage(
 
         log("Aggregating segment metrics")
         generate_segment_report(manifest_path)
-        _maybe_upload_frame_dir(job, manifest_path.parent, log)
+        _upload_frame_directory(job, manifest_path.parent, log)
 
         pose_results = manifest_path.parent / "pose_results.json"
         if pose_results.exists() and len(pose_samples) < MAX_POSE_SAMPLES:
