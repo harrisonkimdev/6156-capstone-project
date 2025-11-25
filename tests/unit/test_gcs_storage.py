@@ -48,11 +48,13 @@ class DummyClient:
 
 
 def test_build_config_from_env(monkeypatch):
+    monkeypatch.setenv("GCS_PROJECT", "test-project")
     monkeypatch.setenv("GCS_VIDEO_BUCKET", "raw-videos")
     monkeypatch.setenv("GCS_FRAME_BUCKET", "frame-bucket")
     monkeypatch.setenv("GCS_MODEL_BUCKET", "model-bucket")
     monkeypatch.setenv("GCS_VIDEO_PREFIX", "custom/raw")
     config = build_config_from_env()
+    assert config.project == "test-project"
     assert config.video_bucket == "raw-videos"
     assert config.frame_bucket == "frame-bucket"
     assert config.model_bucket == "model-bucket"
@@ -72,9 +74,28 @@ def test_upload_file_uses_dummy_client(tmp_path):
     assert blob.upload_calls[0]["filename"].endswith("sample.mp4")
 
 
-def test_get_gcs_manager_returns_none_when_unconfigured(monkeypatch):
+def test_get_gcs_manager_raises_when_unconfigured(monkeypatch):
+    """Test that get_gcs_manager raises ValueError when required env vars are missing."""
     for key in list(os.environ):
         if key.startswith("GCS_") or key.startswith("GOOGLE_CLOUD") or key == "GCLOUD_PROJECT":
             monkeypatch.delenv(key, raising=False)
-    manager = get_gcs_manager(force_refresh=True)
-    assert manager is None
+    with pytest.raises(ValueError, match="GCS is required but missing environment variables"):
+        get_gcs_manager(force_refresh=True)
+
+
+def test_build_config_from_env_raises_when_missing_required(monkeypatch):
+    """Test that build_config_from_env raises ValueError when required vars are missing."""
+    # Clear all GCS-related env vars
+    for key in list(os.environ):
+        if key.startswith("GCS_") or key.startswith("GOOGLE_CLOUD") or key == "GCLOUD_PROJECT":
+            monkeypatch.delenv(key, raising=False)
+    
+    with pytest.raises(ValueError, match="GCS is required but missing environment variables"):
+        build_config_from_env()
+    
+    # Test with only project missing
+    monkeypatch.setenv("GCS_VIDEO_BUCKET", "videos")
+    monkeypatch.setenv("GCS_FRAME_BUCKET", "frames")
+    monkeypatch.setenv("GCS_MODEL_BUCKET", "models")
+    with pytest.raises(ValueError, match="GCS_PROJECT"):
+        build_config_from_env()
