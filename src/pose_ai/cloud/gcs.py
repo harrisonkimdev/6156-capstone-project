@@ -12,9 +12,9 @@ from typing import List, Optional
 
 LOGGER = logging.getLogger(__name__)
 
-try:  # Optional dependency; defer failure until actually used.
+try:  # Required dependency.
     from google.cloud import storage  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - environment without google-cloud-storage.
+except ModuleNotFoundError:  # pragma: no cover
     storage = None  # type: ignore[assignment]
 
 
@@ -36,15 +36,39 @@ class GCSConfig:
 
 
 def build_config_from_env() -> GCSConfig:
-    """Populate :class:`GCSConfig` from standard environment variables."""
+    """Populate :class:`GCSConfig` from standard environment variables.
+    
+    Raises:
+        ValueError: If required environment variables are missing.
+    """
+    project = os.getenv("GCS_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
+    video_bucket = os.getenv("GCS_VIDEO_BUCKET")
+    frame_bucket = os.getenv("GCS_FRAME_BUCKET")
+    model_bucket = os.getenv("GCS_MODEL_BUCKET")
+    
+    # Validate required environment variables
+    missing = []
+    if not project:
+        missing.append("GCS_PROJECT (or GOOGLE_CLOUD_PROJECT or GCLOUD_PROJECT)")
+    if not video_bucket:
+        missing.append("GCS_VIDEO_BUCKET")
+    if not frame_bucket:
+        missing.append("GCS_FRAME_BUCKET")
+    if not model_bucket:
+        missing.append("GCS_MODEL_BUCKET")
+    
+    if missing:
+        raise ValueError(
+            f"GCS is required but missing environment variables: {', '.join(missing)}. "
+            "Please set all required GCS environment variables."
+        )
+    
     return GCSConfig(
-        project=os.getenv("GCS_PROJECT")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or os.getenv("GCLOUD_PROJECT"),
+        project=project,
         credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-        video_bucket=os.getenv("GCS_VIDEO_BUCKET"),
-        frame_bucket=os.getenv("GCS_FRAME_BUCKET"),
-        model_bucket=os.getenv("GCS_MODEL_BUCKET"),
+        video_bucket=video_bucket,
+        frame_bucket=frame_bucket,
+        model_bucket=model_bucket,
         raw_prefix=os.getenv("GCS_VIDEO_PREFIX", "videos/raw"),
         frame_prefix=os.getenv("GCS_FRAME_PREFIX", "videos/frames"),
         model_prefix=os.getenv("GCS_MODEL_PREFIX", "models"),
@@ -133,26 +157,41 @@ class CloudStorageManager:
         *,
         upload_id: str,
         metadata: Optional[dict[str, str]] = None,
-    ) -> str | None:
+    ) -> str:
+        """Upload a raw video file to GCS.
+        
+        Raises:
+            ValueError: If video_bucket is not configured.
+        """
         bucket = self.config.video_bucket
         if not bucket:
-            return None
+            raise ValueError("GCS_VIDEO_BUCKET is required but not configured.")
         prefix = f"{self.config.raw_prefix.rstrip('/')}/{upload_id}"
         object_name = f"{prefix}/{Path(video_path).name}"
         return self.upload_file(video_path, bucket_name=bucket, object_name=object_name, metadata=metadata)
 
-    def upload_frame_directory(self, frame_dir: Path | str, *, job_id: str) -> str | None:
+    def upload_frame_directory(self, frame_dir: Path | str, *, job_id: str) -> str:
+        """Upload a frame directory to GCS.
+        
+        Raises:
+            ValueError: If frame_bucket is not configured.
+        """
         bucket = self.config.frame_bucket
         if not bucket:
-            return None
+            raise ValueError("GCS_FRAME_BUCKET is required but not configured.")
         folder_name = Path(frame_dir).name
         prefix = f"{self.config.frame_prefix.rstrip('/')}/{job_id}/{folder_name}"
         return self.upload_directory(frame_dir, bucket_name=bucket, prefix=prefix)
 
-    def upload_model(self, model_path: Path | str, *, job_id: str | None = None) -> str | None:
+    def upload_model(self, model_path: Path | str, *, job_id: str | None = None) -> str:
+        """Upload a model file to GCS.
+        
+        Raises:
+            ValueError: If model_bucket is not configured.
+        """
         bucket = self.config.model_bucket
         if not bucket:
-            return None
+            raise ValueError("GCS_MODEL_BUCKET is required but not configured.")
         suffix = Path(model_path).name
         prefix = self.config.model_prefix.rstrip("/")
         if job_id:
@@ -194,15 +233,20 @@ class CloudStorageManager:
 _CACHED_MANAGER: CloudStorageManager | None = None
 
 
-def get_gcs_manager(force_refresh: bool = False) -> CloudStorageManager | None:
-    """Return a cached :class:`CloudStorageManager` if any bucket is configured."""
+def get_gcs_manager(force_refresh: bool = False) -> CloudStorageManager:
+    """Return a cached :class:`CloudStorageManager`.
+    
+    GCS is required, so this will always return a CloudStorageManager instance.
+    If required environment variables are missing, a ValueError will be raised
+    during configuration validation.
+    
+    Raises:
+        ValueError: If required GCS environment variables are missing.
+    """
     global _CACHED_MANAGER  # pylint: disable=global-statement
     if not force_refresh and _CACHED_MANAGER is not None:
         return _CACHED_MANAGER
     config = build_config_from_env()
-    if not config.any_bucket_configured():
-        _CACHED_MANAGER = None
-        return None
     _CACHED_MANAGER = CloudStorageManager(config)
     return _CACHED_MANAGER
 
