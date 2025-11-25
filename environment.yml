@@ -14,7 +14,9 @@ dependencies:
   - uvicorn
   - ipykernel
   - jupyterlab
-  - pip:
+  -   pip:
       - mediapipe==0.10.9
       - ultralytics==8.0.196
       - protobuf>=3.20.3,<4
+      - google-cloud-storage
+      - python-dotenv
