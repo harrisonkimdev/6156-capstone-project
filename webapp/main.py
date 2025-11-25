@@ -7,11 +7,15 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+
+# Load environment variables from .env file
+load_dotenv()
 
 from pose_ai.cloud.gcs import get_gcs_manager
 from webapp.jobs import JobManager
@@ -39,7 +43,13 @@ def _ensure_directory(path: Path) -> Path:
     return path
 
 
-def _save_uploaded_file(video: UploadFile) -> tuple[Path, str | None]:
+def _save_uploaded_file(video: UploadFile) -> tuple[Path, str]:
+    """Save uploaded video file locally and upload to GCS.
+    
+    Raises:
+        HTTPException: If file is not provided.
+        Exception: If GCS upload fails.
+    """
     if video is None:
         raise HTTPException(status_code=400, detail="No file provided")
     target_dir = _ensure_directory(UPLOAD_ROOT / uuid4().hex)
@@ -48,16 +58,12 @@ def _save_uploaded_file(video: UploadFile) -> tuple[Path, str | None]:
         video.file.seek(0)
         shutil.copyfileobj(video.file, destination)
     video.file.close()
-    gcs_uri: str | None = None
-    if GCS_MANAGER is not None:
-        try:
-            gcs_uri = GCS_MANAGER.upload_raw_video(
-                file_path,
-                upload_id=target_dir.name,
-                metadata={"filename": video.filename},
-            )
-        except Exception as exc:  # pragma: no cover - depends on GCS credentials
-            LOGGER.warning("Failed to upload raw video to GCS: %s", exc)
+    # GCS upload is required - will raise exception on failure
+    gcs_uri = GCS_MANAGER.upload_raw_video(
+        file_path,
+        upload_id=target_dir.name,
+        metadata={"filename": video.filename},
+    )
     return target_dir, gcs_uri
 
 
@@ -216,9 +222,7 @@ async def list_videos() -> dict[str, list[str]]:
 @app.post("/api/upload", response_class=JSONResponse)
 async def upload_video(video: UploadFile = File(...)) -> dict[str, object]:
     saved_dir, gcs_uri = _save_uploaded_file(video)
-    payload = {"video_dir": str(saved_dir)}
-    if gcs_uri:
-        payload["gcs_uri"] = gcs_uri
+    payload = {"video_dir": str(saved_dir), "gcs_uri": gcs_uri}
     return payload
 
 
@@ -246,6 +250,7 @@ class TrainRequest(BaseModel):
     test_size: float = 0.2
     random_state: int = 42
     model_out: str = "models/xgb_pose.json"
+    upload_to_gcs: bool = Field(False, description="Upload trained model to GCS (default: False)")
 
 
 @app.post("/api/train", response_class=JSONResponse)
