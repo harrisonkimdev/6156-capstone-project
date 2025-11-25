@@ -24,15 +24,15 @@ def execute_training(job: TrainJob) -> None:
         # map incoming job params to our trainer params
         params = params_from_dict(job.params)
         metrics = train_from_file(path, params)
+        
+        # GCS upload is optional - only if upload_to_gcs is True
         model_uri = None
-        if GCS_MANAGER is not None:
-            try:
-                model_uri = GCS_MANAGER.upload_model(params.model_out, job_id=job.id)
-            except Exception as exc:  # pragma: no cover - depends on cloud credentials
-                job.log(f"GCS model upload skipped: {exc}")
-        job.complete(metrics=metrics, model_path=str(params.model_out), model_uri=model_uri)
-        if model_uri:
+        upload_to_gcs = job.params.get("upload_to_gcs", False)
+        if upload_to_gcs:
+            model_uri = GCS_MANAGER.upload_model(params.model_out, job_id=job.id)
             job.log(f"Uploaded model to {model_uri}")
+        
+        job.complete(metrics=metrics, model_path=str(params.model_out), model_uri=model_uri)
         job.log("Training completed")
     except Exception as exc:  # pragma: no cover
         job.fail(exc)
