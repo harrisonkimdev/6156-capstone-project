@@ -25,7 +25,7 @@ Climbing video analysis system with pose estimation, hold detection, efficiency 
 - **ML Models**: BiLSTM and Transformer multitask models for efficiency and next-action prediction
 - **Route Difficulty Estimation**: XGBoost model for V0-V10 grade prediction
 - **Web UI**: FastAPI with background job management, real-time status updates, and grading UI
-- **Cloud Storage**: Optional GCS integration for videos, frames, and models
+- **Cloud Storage**: Required GCS integration for videos, frames, and models
 
 ---
 
@@ -362,29 +362,84 @@ Content-Type: application/json
 
 ---
 
-## Cloud Storage (Optional)
+## Cloud Storage (Required)
 
-Mirror videos, frames, and models to Google Cloud Storage.
+All pipeline artifacts (videos, frames, and models) are automatically uploaded to Google Cloud Storage. GCS configuration is **required** for the application to run.
 
 ### Setup
 
-1. Set environment variables:
+1. **Create a `.env` file** (recommended for local development):
+
+   Create a `.env` file in the project root with the following variables:
+
+   ```bash
+   # Required: GCP Project ID
+   GCS_PROJECT=your-gcp-project-id
+   # Alternative: GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+
+   # Required: GCS Bucket Names
+   GCS_VIDEO_BUCKET=your-video-bucket-name
+   GCS_FRAME_BUCKET=your-frame-bucket-name
+   GCS_MODEL_BUCKET=your-model-bucket-name
+
+   # Optional: Custom Prefixes (defaults shown)
+   # GCS_VIDEO_PREFIX=videos/raw
+   # GCS_FRAME_PREFIX=videos/frames
+   # GCS_MODEL_PREFIX=models
+
+   # Required: Authentication
+   # Option 1: Service Account JSON file path
+   # Recommended: Store the JSON file in the project root directory
+   GOOGLE_APPLICATION_CREDENTIALS=./gcs-key.json
+   # Or use absolute path:
+   # GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+
+   # Option 2: Use gcloud auth application-default login instead
+   # (then you don't need GOOGLE_APPLICATION_CREDENTIALS)
+   ```
+
+   **Note:**
+
+   - The `.env` file is already in `.gitignore` and will not be committed to version control.
+   - Service account JSON key files (e.g., `*-key.json`, `*service-account*.json`, `gcs-key.json`) are also in `.gitignore` for security.
+   - You can safely store the JSON key file in the project root directory.
+
+   **Alternative:** You can also set environment variables directly in your shell:
 
    ```bash
    export GCS_PROJECT=<gcp-project-id>
    export GCS_VIDEO_BUCKET=<raw-video-bucket>
    export GCS_FRAME_BUCKET=<frame-bucket>
    export GCS_MODEL_BUCKET=<model-bucket>
-   # Optional prefixes
-   export GCS_VIDEO_PREFIX=videos/raw
-   export GCS_FRAME_PREFIX=videos/frames
-   export GCS_MODEL_PREFIX=models
+   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
    ```
 
-2. Install SDK:
+2. **Create Service Account and download JSON key:**
+
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → IAM & Admin → Service Accounts
+   - Create a new service account with **Storage Object Admin** role (or **Storage Admin** for full access)
+   - Create a JSON key and download it
+   - Save the JSON file in the project root directory (e.g., `gcs-key.json` or `betamove-gcs-key.json`)
+   - Update `.env` file with the path: `GOOGLE_APPLICATION_CREDENTIALS=./gcs-key.json`
+
+   **Security Note:** The JSON key file is automatically ignored by Git (see `.gitignore`). Never commit it to version control.
+
+3. **Configure authentication** (choose one):
+
+   - **Service account JSON file:** Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env` (recommended: use relative path like `./gcs-key.json`)
+   - **Google Cloud SDK default credentials:**
+     ```bash
+     gcloud auth application-default login
+     ```
+
+4. **Install dependencies:**
    ```bash
-   conda run -n 6156-capstone pip install google-cloud-storage
+   conda run -n 6156-capstone pip install google-cloud-storage python-dotenv
    ```
+
+### Error Handling
+
+If any required environment variables are missing, the application will raise a `ValueError` at startup with details about which variables need to be set. GCS upload failures will cause the entire operation to fail.
 
 ### Retention Script
 
@@ -622,7 +677,7 @@ Computes derived features from pose landmarks:
 - **Computer Vision**: MediaPipe 0.10.9, OpenCV, Ultralytics YOLOv8
 - **ML**: PyTorch (BiLSTM, Transformer), XGBoost, scikit-learn
 - **Web**: FastAPI, Uvicorn, Jinja2
-- **Storage**: Local filesystem + optional Google Cloud Storage
+- **Storage**: Local filesystem (temporary) + required Google Cloud Storage
 - **Testing**: pytest
 
 ---
