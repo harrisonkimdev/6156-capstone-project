@@ -221,7 +221,7 @@ data/
 !src/pose_ai/data/
 BetaMove/rawImages/
 models/
-docs/_build/
+docs/
 
 # Model weights
 *.pt

@@ -24,21 +24,17 @@ from ..pose.estimator import PoseEstimator, PoseFrame
 LOGGER = logging.getLogger(__name__)
 
 
-def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray) -> tuple[float, np.ndarray]:
+def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray, max_size: int = 640) -> tuple[float, np.ndarray]:
     """Compute dense optical flow between two frames.
 
     Args:
-        frame1: First frame (grayscale)
-        frame2: Second frame (grayscale)
+        frame1: First frame (grayscale or BGR)
+        frame2: Second frame (grayscale or BGR)
+        max_size: Maximum dimension for resizing (to reduce memory usage)
 
     Returns:
         Tuple of (motion_score, flow_magnitude_array)
     """
-    if frame1.shape != frame2.shape:
-        # Resize to match
-        h, w = frame1.shape[:2]
-        frame2 = cv2.resize(frame2, (w, h))
-
     # Convert to grayscale if needed
     if len(frame1.shape) == 3:
         gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
@@ -50,14 +46,45 @@ def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray) -> tuple[float,
     else:
         gray2 = frame2
 
-    # Compute optical flow
-    flow = cv2.calcOpticalFlowFarneback(
-        gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0
-    )
+    # Resize frames if too large to reduce memory usage and prevent crashes
+    h, w = gray1.shape[:2]
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        gray1 = cv2.resize(gray1, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        gray2 = cv2.resize(gray2, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        LOGGER.debug("Resized frames from %dx%d to %dx%d for optical flow", w, h, new_w, new_h)
+
+    # Ensure frames have same shape
+    if gray1.shape != gray2.shape:
+        h, w = gray1.shape[:2]
+        gray2 = cv2.resize(gray2, (w, h), interpolation=cv2.INTER_AREA)
+
+    # Validate frame dimensions
+    if gray1.size == 0 or gray2.size == 0:
+        LOGGER.warning("Empty frame detected in optical flow computation")
+        return 0.0, np.array([])
+
+    # Compute optical flow with error handling
+    try:
+        flow = cv2.calcOpticalFlowFarneback(
+            gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0
+        )
+    except cv2.error as e:
+        LOGGER.error("OpenCV error in optical flow computation: %s", e)
+        return 0.0, np.array([])
+    except Exception as e:
+        LOGGER.error("Unexpected error in optical flow computation: %s", e)
+        return 0.0, np.array([])
 
     # Compute magnitude
-    magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-    motion_score = float(np.mean(magnitude))
+    try:
+        magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+        motion_score = float(np.mean(magnitude))
+    except Exception as e:
+        LOGGER.error("Error computing motion score: %s", e)
+        return 0.0, np.array([])
 
     return motion_score, magnitude
 
@@ -218,28 +245,31 @@ def extract_frames_with_motion(
 
         prev_frame = frame
 
-    # Step 3: Filter by motion threshold
-    high_motion_indices = [
-        idx for idx, score in enumerate(motion_scores) if score >= motion_threshold
+    # Step 3: Filter out walking segments (high motion = walking in/out)
+    # Select frames with LOW motion (climbing segments)
+    # Walking has high motion, climbing has lower motion
+    climbing_indices = [
+        idx for idx, score in enumerate(motion_scores) if score < motion_threshold
     ]
 
-    if not high_motion_indices:
-        LOGGER.warning("No frames exceeded motion threshold. Using all frames.")
-        high_motion_indices = list(range(len(temp_frames)))
+    if not climbing_indices:
+        LOGGER.warning("No frames below motion threshold (all frames appear to be walking). Using all frames.")
+        climbing_indices = list(range(len(temp_frames)))
+    else:
+        LOGGER.info("Found %d climbing frames (low motion, out of %d total)", len(climbing_indices), len(temp_frames))
+        LOGGER.info("Excluded %d walking frames (high motion)", len(temp_frames) - len(climbing_indices))
 
-    LOGGER.info("Found %d frames with high motion", len(high_motion_indices))
-
-    # Step 4: Pose estimation on high-motion frames
+    # Step 4: Pose estimation on climbing frames
     selected_indices: list[int] = []
     pose_frames: list[PoseFrame] = []
 
     if use_pose_similarity:
-        # Save high-motion frames temporarily for pose estimation
+        # Save climbing frames temporarily for pose estimation
         temp_frame_dir = frame_dir / "temp_poses"
         temp_frame_dir.mkdir(exist_ok=True)
         temp_frame_paths: list[Path] = []
 
-        for idx in high_motion_indices:
+        for idx in climbing_indices:
             frame_idx, frame, timestamp = temp_frames[idx]
             temp_path = temp_frame_dir / f"temp_{idx:06d}.jpg"
             cv2.imwrite(str(temp_path), frame)
@@ -250,7 +280,7 @@ def extract_frames_with_motion(
             estimator = PoseEstimator()
             pose_frames = estimator.process_paths(
                 temp_frame_paths,
-                timestamps=[temp_frames[idx][2] for idx in high_motion_indices],
+                timestamps=[temp_frames[idx][2] for idx in climbing_indices],
             )
             estimator.close()
         except Exception as exc:
@@ -270,15 +300,15 @@ def extract_frames_with_motion(
 
     # Step 5: Select frames based on pose similarity
     if use_pose_similarity and pose_frames:
-        selected_indices.append(high_motion_indices[0])  # Always include first frame
+        selected_indices.append(climbing_indices[0])  # Always include first frame
 
-        for i in range(1, len(high_motion_indices)):
-            current_idx = high_motion_indices[i]
+        for i in range(1, len(climbing_indices)):
+            current_idx = climbing_indices[i]
             prev_selected_idx = selected_indices[-1]
 
             # Find corresponding pose frames
             current_pose_idx = i
-            prev_pose_idx = high_motion_indices.index(prev_selected_idx) if prev_selected_idx in high_motion_indices else None
+            prev_pose_idx = climbing_indices.index(prev_selected_idx) if prev_selected_idx in climbing_indices else None
 
             if prev_pose_idx is not None and current_pose_idx < len(pose_frames) and prev_pose_idx < len(pose_frames):
                 similarity = compute_pose_similarity(pose_frames[prev_pose_idx], pose_frames[current_pose_idx])
@@ -288,20 +318,11 @@ def extract_frames_with_motion(
                     # Check minimum interval
                     if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
                         selected_indices.append(current_idx)
-                # Also check motion score as secondary criterion
-                elif motion_scores[current_idx] >= motion_threshold * 2.0:
-                    if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
-                        selected_indices.append(current_idx)
-            else:
-                # Fallback: use motion score
-                if motion_scores[current_idx] >= motion_threshold:
-                    if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
-                        selected_indices.append(current_idx)
     else:
-        # Motion-only selection
-        selected_indices.append(high_motion_indices[0])  # Always include first frame
+        # Motion-only selection (climbing frames only)
+        selected_indices.append(climbing_indices[0])  # Always include first frame
 
-        for idx in high_motion_indices[1:]:
+        for idx in climbing_indices[1:]:
             # Check minimum interval
             if len(selected_indices) == 0 or (idx - selected_indices[-1]) >= min_frame_interval:
                 selected_indices.append(idx)
@@ -344,9 +365,16 @@ def extract_frames_with_motion(
     manifest_path: Optional[Path] = None
     if write_manifest:
         manifest_path = frame_dir / "manifest.json"
+        # Calculate approximate interval from saved frames
+        if len(saved_paths) > 1 and fps > 0:
+            approx_interval = (temp_frames[selected_indices[-1]][2] - temp_frames[selected_indices[0]][2]) / max(1, len(saved_paths) - 1)
+        else:
+            approx_interval = initial_sampling_rate
+        
         manifest_payload = {
             "video": str(source_path),
             "fps": fps,
+            "interval_seconds": approx_interval,
             "extraction_method": "motion_pose" if use_pose_similarity else "motion",
             "motion_threshold": motion_threshold,
             "similarity_threshold": similarity_threshold if use_pose_similarity else None,

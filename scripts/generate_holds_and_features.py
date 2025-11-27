@@ -16,7 +16,10 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from pose_ai.service.feature_service import export_features_for_manifest  # type: ignore
-from pose_ai.service.hold_extraction import extract_and_cluster_holds, export_holds_json  # type: ignore
+from pose_ai.service.hold_extraction import (
+    extract_and_cluster_holds,
+    export_holds_json,
+)  # type: ignore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,6 +44,7 @@ def main() -> None:
     else:
         print(f"Detecting holds in {len(image_paths)} frames using {args.model}")
         clustered = extract_and_cluster_holds(image_paths, model_name=args.model, device=args.device)
+        
         if clustered:
             holds_path = export_holds_json(clustered, output_path=frame_dir / "holds.json")
             print(f"Exported {len(clustered)} clustered holds to {holds_path}")
