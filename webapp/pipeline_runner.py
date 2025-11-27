@@ -137,11 +137,9 @@ def run_pipeline_stage(
         
         # Run segmentation if enabled
         seg_config = segmentation_options or {}
-        seg_method = str(seg_config.get("method", "yolo")).lower()
-        if bool(seg_config.get("enabled", False)) and seg_method != "none":
+        if bool(seg_config.get("enabled", False)):
             try:
-                from pose_ai.segmentation import (  # type: ignore
-                    HsvSegmentationModel,
+                from pose_ai.segmentation.yolo_segmentation import (  # type: ignore
                     YoloSegmentationModel,
                     export_segmentation_masks,
                     extract_hold_colors,
@@ -149,33 +147,22 @@ def run_pipeline_stage(
                     export_routes_json,
                 )
                 
+                log("Running YOLO segmentation...")
                 frame_dir = manifest_path.parent
                 image_paths = sorted([p for p in frame_dir.glob("*.jpg")])
                 
                 if image_paths:
-                    if seg_method == "hsv":
-                        log("Running HSV segmentation...")
-                        seg_model = HsvSegmentationModel(
-                            hue_tolerance=int(seg_config.get("hsv_hue_tolerance", 5)),
-                            sat_tolerance=int(seg_config.get("hsv_sat_tolerance", 50)),
-                            val_tolerance=int(seg_config.get("hsv_val_tolerance", 40)),
-                        )
-                        seg_results = seg_model.batch_segment_frames(
-                            image_paths,
-                            target_classes=["wall", "hold"],
-                        )
-                    else:  # yolo
-                        log("Running YOLO segmentation...")
-                        seg_model = YoloSegmentationModel(
-                            model_name=str(seg_config.get("model_name", "yolov8n-seg.pt")),
-                            device=yolo_config.get("device") if yolo_config else None,
-                            imgsz=int(yolo_config.get("imgsz", 640)) if yolo_config else 640,
-                        )
-                        seg_results = seg_model.batch_segment_frames(
-                            image_paths,
-                            conf_threshold=float(yolo_config.get("min_confidence", 0.25)) if yolo_config else 0.25,
-                            target_classes=["wall", "hold", "climber", "person"],
-                        )
+                    seg_model = YoloSegmentationModel(
+                        model_name=str(seg_config.get("model_name", "yolov8n-seg.pt")),
+                        device=yolo_config.get("device") if yolo_config else None,
+                        imgsz=int(yolo_config.get("imgsz", 640)) if yolo_config else 640,
+                    )
+                    
+                    seg_results = seg_model.batch_segment_frames(
+                        image_paths,
+                        conf_threshold=float(yolo_config.get("min_confidence", 0.25)) if yolo_config else 0.25,
+                        target_classes=["wall", "hold", "climber", "person"],
+                    )
                     
                     if bool(seg_config.get("export_masks", True)):
                         export_segmentation_masks(seg_results, frame_dir, export_images=True, export_json=True)

@@ -13,7 +13,7 @@ Climbing video analysis system with pose estimation, hold detection, efficiency 
 ## Features
 
 - **Video Processing**: Extract frames using interval-based, motion-based, or motion+pose similarity methods
-- **Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions (YOLO or HSV color-based methods)
+- **YOLO Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions
 - **Color-Based Route Grouping**: Automatically group holds by color to identify climbing routes/problems
 - **Pose Estimation**: MediaPipe 33-landmark detection with confidence filtering
 - **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering and temporal tracking
@@ -107,17 +107,7 @@ conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py d
 
 ```bash
 conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py data/videos --output data/frames \
-  --segmentation --seg-method yolo --seg-model yolov8n-seg.pt
-```
-
-**With HSV segmentation**:
-
-```bash
-conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py data/videos --output data/frames \
-  --segmentation --seg-method hsv \
-  --hsv-hue-tolerance 5 \
-  --hsv-sat-tolerance 50 \
-  --hsv-val-tolerance 40
+  --segmentation --seg-model yolov8n-seg.pt
 ```
 
 #### 2. Pose Estimation
@@ -339,16 +329,13 @@ Content-Type: application/json
 **Segmentation Options**:
 
 - `enabled`: Enable YOLO segmentation (default: false)
-- `method`: Segmentation method: `"yolo"`, `"hsv"`, or `"none"` (default: "yolo")
+- `method`: Segmentation method, currently only `"yolo"` (default: "yolo")
 - `model_name`: YOLO segmentation model name (default: "yolov8n-seg.pt")
 - `export_masks`: Export segmentation masks as images (default: true)
 - `group_by_color`: Group holds by color to identify routes (default: true)
 - `hue_tolerance`: Hue tolerance for color clustering (default: 10)
 - `sat_tolerance`: Saturation tolerance for color clustering (default: 50)
 - `val_tolerance`: Value tolerance for color clustering (default: 50)
-- `hsv_hue_tolerance`: HSV method: Hue tolerance for hold detection (default: 5)
-- `hsv_sat_tolerance`: HSV method: Saturation tolerance for hold detection (default: 50)
-- `hsv_val_tolerance`: HSV method: Value tolerance for hold detection (default: 40)
 
 #### Other Endpoints
 
@@ -497,12 +484,10 @@ Options: `--kind frames|models`, `--bucket`, `--prefix`
 │  └────────────────┬────────────────────────────────┘   │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 2. Segmentation (segmentation/                  │  │
-│  │    yolo_segmentation.py or hsv_segmentation.py) │  │
-│  │    - OPTIONAL                                    │  │
-│  │    - YOLO: Wall, holds, climber pixel-level     │  │
-│  │      masks with color-based route grouping       │  │
-│  │    - HSV: Color-based hold detection             │  │
+│  │ 2. YOLO Segmentation (segmentation/             │  │
+│  │    yolo_segmentation.py) - OPTIONAL              │  │
+│  │    - Wall, holds, climber pixel-level masks     │  │
+│  │    - Color-based route grouping                 │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
@@ -581,11 +566,7 @@ Combines motion detection with pose similarity to select diverse frames. Best fo
 6. Select frames where pose similarity < threshold (significant pose change)
 7. Apply minimum interval constraint
 
-### Segmentation
-
-Two methods are available for pixel-level segmentation:
-
-#### YOLO Segmentation
+### YOLO Segmentation
 
 Uses YOLO segmentation model to separate wall, holds, and climber regions at pixel level.
 
@@ -594,35 +575,12 @@ Uses YOLO segmentation model to separate wall, holds, and climber regions at pix
 - Pixel-level masks for each class (wall, holds, climber)
 - Color-based route grouping (same color = same route/problem)
 - Automatic hold color extraction and clustering
-- Requires pre-trained YOLO model
 
 **Output**:
 
 - `masks/`: Binary mask images for each class
 - `segmentation_results.json`: Metadata with mask paths
 - `routes.json`: Color-based route groupings
-
-#### HSV Segmentation
-
-Uses HSV color masking to detect holds based on color similarity. This method is useful when you have a reference color or want to detect holds of a specific color.
-
-**Features**:
-
-- HSV color-based hold detection
-- Background removal using HSV thresholds
-- No model required (works with color information only)
-- Configurable hue, saturation, and value tolerances
-
-**Parameters**:
-
-- `hue_tolerance`: Hue tolerance for color matching (0-179, default: 5)
-- `sat_tolerance`: Saturation tolerance (0-255, default: 50)
-- `val_tolerance`: Value tolerance (0-255, default: 40)
-
-**Output**:
-
-- `masks/`: Binary mask images for detected holds
-- `segmentation_results.json`: Metadata with mask paths
 
 ### Hold Detection
 
