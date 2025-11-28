@@ -1,38 +1,34 @@
-## Simple environment + Jupyter kernel setup
+## Simple Conda environment + Jupyter kernel setup (uses environment.yml)
 ## Usage:
-##   make init                 # create venv, install deps, register kernel
+##   make init                 # create/update env from environment.yml, register kernel
+##   make env                  # sync env only
 ##   make kernel               # (re)register the Jupyter kernel
 ##   make clean-kernel         # remove the Jupyter kernel
-## Variables you can override: VENV=.venv PYTHON=python3.10 KERNEL_NAME=6156-capstone DISPLAY_NAME=6156\ (py3.10)
+## Variables you can override: ENV_NAME=6156-capstone CONDA=conda KERNEL_NAME=6156-capstone DISPLAY_NAME=6156\ (py3.10)
 
-VENV ?= .venv
-PYTHON ?= python3.10
+ENV_NAME ?= 6156-capstone
+CONDA ?= conda
 KERNEL_NAME ?= 6156-capstone
 DISPLAY_NAME ?= 6156 (py3.10)
 
-PIP := $(VENV)/bin/pip
-PY  := $(VENV)/bin/python
+CONDA_RUN := $(CONDA) run -n $(ENV_NAME)
 
-.PHONY: init setup deps kernel clean-kernel
+.PHONY: init env kernel clean-kernel
 
-init: setup deps kernel
+init: env kernel
 
-setup:
-	@echo "Creating venv with $(PYTHON) at $(VENV) ..."
-	$(PYTHON) -m venv $(VENV)
-	@echo "Venv ready: $(VENV)"
-
-deps:
-	@echo "Upgrading pip/setuptools/wheel ..."
-	$(PIP) install --upgrade pip setuptools wheel
-	@echo "Installing project requirements ..."
-	$(PIP) install -r requirements.txt
-	@echo "Installing Jupyter tooling (ipykernel, jupyterlab) ..."
-	$(PIP) install ipykernel jupyterlab
+env:
+	@if $(CONDA) env list | awk '{print $$1}' | grep -qx "$(ENV_NAME)"; then \
+		echo "Updating Conda env $(ENV_NAME) from environment.yml ..."; \
+		$(CONDA) env update -n $(ENV_NAME) -f environment.yml --prune; \
+	else \
+		echo "Creating Conda env $(ENV_NAME) from environment.yml ..."; \
+		$(CONDA) env create -n $(ENV_NAME) -f environment.yml; \
+	fi
 
 kernel:
-	@echo "Registering Jupyter kernel: $(KERNEL_NAME) -> '$(DISPLAY_NAME)' ..."
-	$(PY) -m ipykernel install --user --name $(KERNEL_NAME) --display-name "$(DISPLAY_NAME)"
+	@echo "Registering Jupyter kernel: $(KERNEL_NAME) -> '$(DISPLAY_NAME)' using env $(ENV_NAME) ..."
+	$(CONDA_RUN) python -m ipykernel install --user --name $(KERNEL_NAME) --display-name "$(DISPLAY_NAME)"
 	@echo "Kernel registered. Select '$(DISPLAY_NAME)' in VS Code/Jupyter."
 
 clean-kernel:

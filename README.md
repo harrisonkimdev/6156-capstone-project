@@ -46,6 +46,8 @@ Update an existing environment:
 conda env update -f environment.yml --prune
 ```
 
+**Tip:** Run `make init` to create or update the Conda environment from `environment.yml` and register the `6156 (py3.10)` Jupyter kernel. The repository never stores a `.venv`; always recreate the environment locally when you clone or move the project.
+
 **Alternative** (if `environment.yml` is not available):
 
 ```bash
