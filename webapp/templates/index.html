@@ -14,6 +14,7 @@
                     alt="BetaMove logo"><span>BetaMove</span></a>
             <nav>
                 <a href="/" class="active">Pipeline</a>
+                <a href="/workflow">Workflow</a>
                 <a href="/training">Training</a>
                 <a href="/testing">Testing</a>
             </nav>
@@ -32,16 +33,6 @@
                 <div class="form-row">
                     <label for="output_dir">Output directory</label>
                     <input type="text" id="output_dir" name="output_dir" value="data/frames" required>
-                </div>
-                <div class="form-row inline">
-                    <div>
-                        <label for="interval">Interval (seconds): <span id="interval_value">1.0</span>s</label>
-                        <input type="range" id="interval" name="interval" min="0.2" max="1.0" step="0.1" value="1.0">
-                    </div>
-                    <div class="checkbox">
-                        <input type="checkbox" id="skip_visuals" name="skip_visuals">
-                        <label for="skip_visuals">Skip visualization</label>
-                    </div>
                 </div>
                 <fieldset>
                     <legend>YOLO still selection</legend>
@@ -106,7 +97,6 @@
                             <th>ID</th>
                             <th>Status</th>
                             <th>Video dir</th>
-                            <th>Interval</th>
                             <th>Created</th>
                         </tr>
                     </thead>
@@ -117,7 +107,6 @@
                             <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span>
                             </td>
                             <td>{{ job.video_dir }}</td>
-                            <td>{{ job.interval }}</td>
                             <td>{{ job.created_at }}</td>
                         </tr>
                         {% endfor %}
@@ -195,8 +184,6 @@
         const logTitle = document.getElementById("log-title");
         const refreshButton = document.getElementById("refresh");
         const fileInput = document.getElementById("video_file");
-        const intervalInput = document.getElementById("interval");
-        const intervalValue = document.getElementById("interval_value");
         const visualGrid = document.getElementById("visual-grid");
         const poseTableBody = document.querySelector("#pose-table tbody");
         const poseEmpty = document.getElementById("pose-empty");
@@ -233,7 +220,6 @@
             const minConfidence = parseNumber(formData.get("yolo_min_confidence"), 0.35);
             const maxFramesRaw = formData.get("yolo_max_frames");
             const maxFrames = maxFramesRaw ? parseNumber(maxFramesRaw, null) : null;
-            const intervalValue = parseNumber(formData.get("interval") || "1.0", 1.0);
             const yolo = {
                 enabled: formData.get("enable_yolo") === "on",
                 min_confidence: minConfidence,
@@ -246,8 +232,6 @@
             };
             return {
                 output_dir: formData.get("output_dir"),
-                interval: intervalValue,
-                skip_visuals: formData.get("skip_visuals") === "on",
                 yolo,
             };
         }

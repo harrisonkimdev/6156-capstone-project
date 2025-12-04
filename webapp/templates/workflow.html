@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hold Labeling Workflow - BetaMove</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    .workflow-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .workflow-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .step-card {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      border: 2px solid #333;
+    }
+
+    .step-card.active {
+      border-color: #0066cc;
+    }
+
+    .step-card.completed {
+      border-color: #00cc66;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .step-number {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    .step-card.active .step-number {
+      background: #0066cc;
+    }
+
+    .step-card.completed .step-number {
+      background: #00cc66;
+    }
+
+    .step-title {
+      flex: 1;
+      font-size: 16px;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    .step-content {
+      color: #aaa;
+      font-size: 14px;
+      margin-bottom: 15px;
+    }
+
+    .step-actions button {
+      width: 100%;
+      padding: 10px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .step-actions button:hover {
+      background: #0052a3;
+    }
+
+    .step-actions button:disabled {
+      background: #444;
+      cursor: not-allowed;
+    }
+
+    .step-status {
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    .step-status.success {
+      background: #00cc6620;
+      color: #00cc66;
+    }
+
+    .step-status.error {
+      background: #cc333320;
+      color: #cc3333;
+    }
+
+    .step-status.info {
+      background: #0066cc20;
+      color: #0066cc;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      color: #fff;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 8px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    .session-list {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+
+    .session-item {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .session-info {
+      flex: 1;
+    }
+
+    .session-name {
+      color: #fff;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .session-meta {
+      color: #888;
+      font-size: 12px;
+    }
+
+    .session-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .session-actions button {
+      padding: 6px 12px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .training-status {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+
+    .training-job {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .job-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .job-id {
+      color: #aaa;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .job-status {
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: bold;
+    }
+
+    .job-status.running {
+      background: #0066cc;
+      color: white;
+    }
+
+    .job-status.completed {
+      background: #00cc66;
+      color: white;
+    }
+
+    .job-status.failed {
+      background: #cc3333;
+      color: white;
+    }
+  </style>
+</head>
+
+<body>
+  <nav style="background: #1a1a1a; padding: 15px 20px; margin-bottom: 20px;">
+    <div style="max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
+      <h1 style="margin: 0; color: #fff; font-size: 20px;">🧗 BetaMove - Hold Labeling Workflow</h1>
+      <a href="/" style="color: #0066cc; text-decoration: none;">← Back to Home</a>
+    </div>
+  </nav>
+
+  <div class="workflow-container">
+    <div class="workflow-steps">
+      <!-- Step 1: Extract Frames -->
+      <div id="step-1" class="step-card active">
+        <div class="step-header">
+          <div class="step-number">1</div>
+          <div class="step-title">Extract Frames</div>
+        </div>
+        <div class="step-content">
+          Upload a climbing video and extract frames using motion-based sampling.
+        </div>
+        <div class="form-group">
+          <label>Video File</label>
+          <input type="file" id="video-file" accept="video/*">
+        </div>
+        <div class="form-group">
+          <label>Sampling Method</label>
+          <select id="sampling-method">
+            <option value="motion_pose">Motion + Pose (Recommended)</option>
+            <option value="motion">Motion Only</option>
+            <option value="interval">Fixed Interval</option>
+          </select>
+        </div>
+        <div class="step-actions">
+          <button id="btn-extract-frames">Extract Frames</button>
+          <button id="btn-use-test-frames" style="background: #cc6600; margin-top: 8px;">🧪 Use Test Frames
+            (Dev)</button>
+        </div>
+        <div id="status-step-1" class="step-status" style="display: none;"></div>
+      </div>
+
+      <!-- Step 2: SAM Labeling -->
+      <div id="step-2" class="step-card">
+        <div class="step-header">
+          <div class="step-number">2</div>
+          <div class="step-title">Label Holds (SAM)</div>
+        </div>
+        <div class="step-content">
+          Create a labeling session and annotate holds using SAM segmentation.
+        </div>
+        <div class="form-group">
+          <label>Session Name</label>
+          <input type="text" id="session-name" placeholder="e.g., Training Set 1">
+        </div>
+        <div class="form-group">
+          <label>Frame Directory</label>
+          <input type="text" id="frame-dir" placeholder="data/frames/video_name" readonly>
+        </div>
+        <div class="step-actions">
+          <button id="btn-create-session" disabled>Create Session</button>
+        </div>
+        <div id="status-step-2" class="step-status" style="display: none;"></div>
+      </div>
+
+      <!-- Step 3: YOLO Training -->
+      <div id="step-3" class="step-card">
+        <div class="step-header">
+          <div class="step-number">3</div>
+          <div class="step-title">Train YOLO Model</div>
+        </div>
+        <div class="step-content">
+          Export labeled data and train YOLO model for hold detection.
+        </div>
+        <div class="form-group">
+          <label>Epochs</label>
+          <input type="number" id="train-epochs" value="100" min="10" max="500">
+        </div>
+        <div class="form-group">
+          <label>Batch Size</label>
+          <input type="number" id="train-batch" value="16" min="1" max="64">
+        </div>
+        <div class="step-actions">
+          <button id="btn-start-training" disabled>Start Training</button>
+        </div>
+        <div id="status-step-3" class="step-status" style="display: none;"></div>
+      </div>
+
+      <!-- Step 4: Upload to GCS -->
+      <div id="step-4" class="step-card">
+        <div class="step-header">
+          <div class="step-number">4</div>
+          <div class="step-title">Upload to GCS</div>
+        </div>
+        <div class="step-content">
+          Upload the trained model to Google Cloud Storage for deployment.
+        </div>
+        <div class="step-actions">
+          <button id="btn-upload-gcs" disabled>Upload Model</button>
+        </div>
+        <div id="status-step-4" class="step-status" style="display: none;"></div>
+      </div>
+    </div>
+
+    <!-- Active Sessions -->
+    <div class="session-list">
+      <h2 style="color: #fff; margin-top: 0;">Labeling Sessions</h2>
+      <div id="sessions-container">
+        <p style="color: #888;">No sessions yet. Create one in Step 2.</p>
+      </div>
+    </div>
+
+    <!-- Training Jobs -->
+    <div class="training-status">
+      <h2 style="color: #fff; margin-top: 0;">Training Jobs</h2>
+      <div id="jobs-container">
+        <p style="color: #888;">No training jobs yet. Start one in Step 3.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/workflow.js"></script>
+</body>
+
+</html>

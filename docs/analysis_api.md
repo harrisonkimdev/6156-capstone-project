@@ -94,10 +94,10 @@ This document outlines how the server produces analysis payloads and how the cli
   - Draw: four limb skeleton lines colored by load (fixed thickness), COM crosshair/box, support polygon.  
   - Panel: limb load bars and values.
 - **Mode B: Balance**  
-  - Draw: COM crosshair/box, support polygon, recent COM trail, limbs in light gray with thickness conveying load (color fixed).  
+  - Draw: COM crosshair/box, support polygon colored/thickened by COM deviation, recent COM trail, arrow from COM to support centroid. Limbs are neutral/minimal.  
   - Panel: COM horizontal deviation graph/values.
 - **Mode C: Dynamics**  
-  - Draw: COM trail arrows for dynamic/dyno spans, core rotation bar, hand/foot velocity arrows when needed.  
+  - Draw: COM trail, hand/foot velocity arrows (from limb velocities), torso tilt bar (core load proxy). Dyno-specific highlighting can be added on top.  
   - Panel: dynamic score, core load.
 - **Mode D: Strategy**  
   - Draw: regrip counts near holds, tag icons, optional suggested pose dotted skeleton.  

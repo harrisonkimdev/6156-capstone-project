@@ -26,8 +26,6 @@ class PipelineJob:
     id: str
     video_dir: str
     output_dir: str
-    interval: float
-    skip_visuals: bool
     metadata: dict[str, object] | None = None
     yolo_options: dict[str, object] | None = None
     artifacts: Dict[str, List[str]] = field(default_factory=dict)
@@ -79,8 +77,6 @@ class PipelineJob:
                 "id": self.id,
                 "video_dir": self.video_dir,
                 "output_dir": self.output_dir,
-                "interval": self.interval,
-                "skip_visuals": self.skip_visuals,
                 "metadata": self.metadata or {},
                 "yolo_options": self.yolo_options or {},
                 "artifacts": self.artifacts,
@@ -124,8 +120,6 @@ class JobManager:
         *,
         video_dir: str,
         output_dir: str,
-        interval: float,
-        skip_visuals: bool,
         metadata: dict[str, object] | None = None,
         yolo_options: dict[str, object] | None = None,
     ) -> PipelineJob:
@@ -133,8 +127,6 @@ class JobManager:
             id=uuid4().hex,
             video_dir=video_dir,
             output_dir=output_dir,
-            interval=interval,
-            skip_visuals=skip_visuals,
             metadata=metadata,
             yolo_options=yolo_options,
         )

@@ -10,3 +10,6 @@ uvicorn
 protobuf>=3.20.3,<4
 google-cloud-storage
 python-dotenv
+segment-anything
+torch
+torchvision

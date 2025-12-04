@@ -16,7 +16,6 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from pose_ai.data import (  # type: ignore  # pylint: disable=wrong-import-position
-    extract_frames_every_n_seconds,
     extract_frames_with_motion,
     iter_video_files,
 )
@@ -75,8 +74,6 @@ def run_pipeline_stage(
     job: PipelineJob,
     video_dir: Path,
     output_dir: Path,
-    interval: float,
-    skip_visuals: bool,
     yolo_options: dict[str, object] | None = None,
     segmentation_options: dict[str, object] | None = None,
     frame_extraction_options: dict[str, object] | None = None,
@@ -99,35 +96,25 @@ def run_pipeline_stage(
 
     # Determine frame extraction method
     extraction_config = frame_extraction_options or {}
-    extraction_method = str(extraction_config.get("method", "interval")).lower()
+    extraction_method = str(extraction_config.get("method", "motion")).lower()
 
     manifests: list[Path] = []
     for index, video_path in enumerate(iter_video_files(video_dir)):
         log(f"[{index + 1}] Extracting frames from {video_path.name} (method: {extraction_method})")
         
-        if extraction_method in ("motion", "motion_pose"):
-            # Use advanced motion-based extraction
-            result = extract_frames_with_motion(
-                video_path,
-                output_root=output_dir,
-                motion_threshold=float(extraction_config.get("motion_threshold", 5.0)),
-                similarity_threshold=float(extraction_config.get("similarity_threshold", 0.8)),
-                min_frame_interval=int(extraction_config.get("min_frame_interval", 5)),
-                use_optical_flow=bool(extraction_config.get("use_optical_flow", True)),
-                use_pose_similarity=bool(extraction_config.get("use_pose_similarity", True)) and extraction_method == "motion_pose",
-                initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
-                write_manifest=True,
-                overwrite=False,
-            )
-        else:
-            # Use interval-based extraction (default)
-            result = extract_frames_every_n_seconds(
-                video_path,
-                interval_seconds=interval,
-                output_root=output_dir,
-                write_manifest=True,
-                overwrite=False,
-            )
+        # Use advanced motion-based extraction
+        result = extract_frames_with_motion(
+            video_path,
+            output_root=output_dir,
+            motion_threshold=float(extraction_config.get("motion_threshold", 5.0)),
+            similarity_threshold=float(extraction_config.get("similarity_threshold", 0.8)),
+            min_frame_interval=int(extraction_config.get("min_frame_interval", 5)),
+            use_optical_flow=bool(extraction_config.get("use_optical_flow", True)),
+            use_pose_similarity=bool(extraction_config.get("use_pose_similarity", True)) and extraction_method == "motion_pose",
+            initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
+            write_manifest=True,
+            overwrite=False,
+        )
         
         if result.manifest_path is None:
             raise RuntimeError(f"Manifest not written for {video_path}")
@@ -307,9 +294,6 @@ def run_pipeline_stage(
                     sample
                 )
 
-        if skip_visuals:
-            continue
-
         if visualize_pose_results is None:
             log("Visualization skipped (mediapipe/cv2 dependencies not available).")
             continue
@@ -347,8 +331,6 @@ def execute_job(job: PipelineJob) -> None:
             job=job,
             video_dir=Path(job.video_dir),
             output_dir=Path(job.output_dir),
-            interval=job.interval,
-            skip_visuals=job.skip_visuals,
             yolo_options=job.yolo_options,
             segmentation_options=segmentation_options,
             frame_extraction_options=frame_extraction_options,

@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections import deque
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from pose_ai.features.aggregation import compute_center_of_mass
 from pose_ai.pose.estimator import PoseFrame, PoseLandmark as PoseLandmarkData
@@ -205,6 +207,7 @@ def visualize_pose_results(
         return max(2, int(2 + 4 * _clamp01(load)))
 
     features = _load_features(features_path) if features_path else []
+    com_history: deque[tuple[int, int]] = deque(maxlen=12)
 
     payload = json.loads(pose_results_path.read_text(encoding="utf-8"))
     frames = payload.get("frames", [])
@@ -287,8 +290,15 @@ def visualize_pose_results(
             if com_x is not None and com_y is not None:
                 cx = int(com_x * width)
                 cy = int(com_y * height)
+                com_history.append((cx, cy))
+
+                # Balance emphasis: draw COM trail
+                if mode in {"balance", "dynamics"} and len(com_history) >= 2:
+                    trail_pts = np.array(com_history, dtype=np.int32)
+                    cv2.polylines(image, [trail_pts], False, (0, 255, 255), 2, lineType=cv2.LINE_AA)
+
                 cross_half = max(8, int(min(width, height) * 0.02))
-                com_color = (0, 0, 255) if mode != "balance" else (0, 180, 180)
+                com_color = (0, 0, 255) if mode != "balance" else (0, 220, 255)
                 cv2.line(image, (cx - cross_half, cy), (cx + cross_half, cy), com_color, 2)
                 cv2.line(image, (cx, cy - cross_half), (cx, cy + cross_half), com_color, 2)
                 half_box = max(10, int(width * float(com_box_scale) * 0.5))
@@ -303,16 +313,75 @@ def visualize_pose_results(
         # Support polygon
         support_pts = _support_points(points, feat)
         if len(support_pts) >= 3:
-            import numpy as np
-
             pts_array = np.array(support_pts, dtype=np.int32).reshape((-1, 1, 2))
             hull = cv2.convexHull(pts_array)
             hull_pts = [(int(p[0][0]), int(p[0][1])) for p in hull]
-            color = (0, 200, 255) if mode != "balance" else (0, 255, 0)
-            cv2.polylines(image, [np.array(hull_pts, dtype=np.int32)], True, color, 2)
+            color = (0, 200, 255)
+            thickness = 2
+            if mode == "balance" and draw_com and com_history:
+                cx, cy = com_history[-1]
+                centroid = np.mean(np.array(hull_pts, dtype=float), axis=0)
+                dist = float(math.hypot(cx - centroid[0], cy - centroid[1]))
+                norm = min(1.0, dist / (0.25 * max(width, height)))
+                color = (0, int(255 * (1 - norm)), int(255 * norm))
+                thickness = max(2, int(2 + 4 * norm))
+                # Arrow from COM to centroid to show deviation
+                cv2.arrowedLine(
+                    image,
+                    (cx, cy),
+                    (int(centroid[0]), int(centroid[1])),
+                    color,
+                    2,
+                    tipLength=0.08,
+                )
+            cv2.polylines(image, [np.array(hull_pts, dtype=np.int32)], True, color, thickness)
         elif len(support_pts) == 2:
-            color = (0, 200, 255) if mode != "balance" else (0, 255, 0)
-            cv2.line(image, support_pts[0], support_pts[1], color, 2)
+            color = (0, 200, 255)
+            thickness = 2
+            cv2.line(image, support_pts[0], support_pts[1], color, thickness)
+
+        # Dynamics: draw velocity vectors when available
+        if mode == "dynamics" and feat:
+            def _draw_velocity(limb: str, color: tuple[int, int, int]) -> None:
+                vx = feat.get(f"{limb}_vx")
+                vy = feat.get(f"{limb}_vy")
+                if vx is None or vy is None or limb not in points:
+                    return
+                scale = 80.0
+                start = points[limb]
+                end = (int(start[0] + float(vx) * scale), int(start[1] + float(vy) * scale))
+                cv2.arrowedLine(image, start, end, color, 2, tipLength=0.15)
+
+            _draw_velocity("left_hand", (0, 255, 255))
+            _draw_velocity("right_hand", (0, 200, 255))
+            _draw_velocity("left_foot", (255, 200, 0))
+            _draw_velocity("right_foot", (255, 160, 0))
+
+            # Core rotation bar (torso tilt magnitude)
+            def _torso_tilt() -> float | None:
+                ls = points.get("left_shoulder")
+                rs = points.get("right_shoulder")
+                lh = points.get("left_hip")
+                rh = points.get("right_hip")
+                if None in (ls, rs, lh, rh):
+                    return None
+                shoulder_center = ((ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2)
+                hip_center = ((lh[0] + rh[0]) / 2, (lh[1] + rh[1]) / 2)
+                dx = hip_center[0] - shoulder_center[0]
+                dy = hip_center[1] - shoulder_center[1]
+                angle = abs(math.degrees(math.atan2(dy, dx)))  # 0 horiz, 90 vert
+                return min(1.0, abs(90.0 - angle) / 60.0)  # normalize tilt away from vertical
+
+            tilt = _torso_tilt()
+            if tilt is not None and pose_landmarks:
+                torso_x = int(np.mean([p[0] for p in points.values()]))
+                torso_y = int(np.mean([p[1] for p in points.values()]))
+                bar_h = max(30, int(100 * tilt))
+                bar_w = 8
+                top = (torso_x - bar_w, torso_y - bar_h // 2)
+                bottom = (torso_x + bar_w, torso_y + bar_h // 2)
+                color = (0, int(255 * (1 - tilt)), int(255 * tilt))
+                cv2.rectangle(image, top, bottom, color, -1)
 
         target_dir = output_dir or image_path.parent / "visualized"
         target_dir.mkdir(parents=True, exist_ok=True)
