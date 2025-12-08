@@ -246,20 +246,30 @@ async def workflow_extract_frames(
     video_path = upload_dir / video.filename
     
     try:
+        print(f"[FRAME EXTRACTION] Starting frame extraction for video: {video.filename}")
+        print(f"[FRAME EXTRACTION] Upload ID: {upload_id}")
+        
         with video_path.open("wb") as f:
             shutil.copyfileobj(video.file, f)
         
-        # Extract frames
-        output_dir = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
+        print(f"[FRAME EXTRACTION] Video saved to: {video_path}")
+        
+        # Extract frames - use workflow_frames root, let extract_frames_with_motion create video folder
+        output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
+        print(f"[FRAME EXTRACTION] Output root: {output_root}")
+        print(f"[FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
         
         result = extract_frames_with_motion(
             video_path,
-            output_root=output_dir,
+            output_root=output_root,
             motion_threshold=motion_threshold,
             similarity_threshold=similarity_threshold,
             write_manifest=True,
-            overwrite=False,
+            overwrite=True,
         )
+        
+        print(f"[FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
+        print(f"[FRAME EXTRACTION] Frame directory: {result.frame_directory}")
         
         return {
             "status": "success",
@@ -272,6 +282,60 @@ async def workflow_extract_frames(
         raise HTTPException(status_code=500, detail=f"Frame extraction failed: {str(e)}")
     finally:
         video.file.close()
+
+
+@app.get("/api/workflow/extract-test-video", response_class=JSONResponse)
+async def extract_test_video(
+    motion_threshold: float = 5.0,
+    similarity_threshold: float = 0.8,
+) -> dict[str, object]:
+    """Extract frames from hardcoded test video using motion detection (for development)."""
+    import sys
+    
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    from pose_ai.data import extract_frames_with_motion
+    
+    # Hardcoded test video path (original .mov file now works!)
+    test_video_path = ROOT_DIR / "data" / "test_video" / "IMG_3571.mov"
+    
+    if not test_video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Test video not found: {test_video_path}")
+    
+    try:
+        print(f"[TEST FRAME EXTRACTION] Using motion detection on: {test_video_path}")
+        
+        # Use fixed output directory for test video
+        upload_id = "test_video_frames"
+        output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
+        print(f"[TEST FRAME EXTRACTION] Output root: {output_root}")
+        print(f"[TEST FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
+        
+        result = extract_frames_with_motion(
+            test_video_path,
+            output_root=output_root,
+            motion_threshold=motion_threshold,
+            similarity_threshold=similarity_threshold,
+            write_manifest=True,
+            overwrite=True,
+        )
+        
+        print(f"[TEST FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
+        print(f"[TEST FRAME EXTRACTION] Frame directory: {result.frame_directory}")
+        
+        return {
+            "status": "success",
+            "frame_directory": str(result.frame_directory),
+            "frame_count": result.saved_frames,
+            "manifest_path": str(result.manifest_path) if result.manifest_path else None,
+            "video_path": str(test_video_path),
+        }
+    except Exception as e:
+        LOGGER.exception("Test video frame extraction failed")
+        print(f"[TEST FRAME EXTRACTION] ERROR: {e}")
+        raise HTTPException(status_code=500, detail=f"Frame extraction failed: {str(e)}")
 
 
 @app.get("/api/workflow/use-test-frames", response_class=JSONResponse)
@@ -920,20 +984,20 @@ async def create_labeling_session(
             sam_checkpoint=request.sam_checkpoint,
         )
         
-        print(f"✅ Created labeling session: {session.id} (frames: {frame_dir})")
+        print(f"Created labeling session: {session.id} (frames: {frame_dir})")
         
         # Run SAM segmentation in background if requested
         if request.use_sam:
-            print(f"🔄 Starting SAM background task for session {session.id}...")
+            print(f"Starting SAM background task for session {session.id}...")
             background_tasks.add_task(
                 run_sam_segmentation,
                 session_id=session.id,
                 frame_dir=frame_dir,
                 sam_checkpoint=request.sam_checkpoint,
             )
-            print(f"✅ SAM background task queued successfully")
+            print(f"SAM background task queued successfully")
         else:
-            print(f"⚠️ SAM disabled for session {session.id}")
+            print(f"Warning: SAM disabled for session {session.id}")
         
         return {
             "session_id": session.id,
@@ -970,25 +1034,25 @@ async def run_sam_segmentation(
         # Use default checkpoint if none provided
         if not sam_checkpoint:
             default_checkpoint = ROOT_DIR / "models" / "sam_vit_b_01ec64.pth"
-            print(f"🔍 Looking for default checkpoint: {default_checkpoint}")
+            print(f"Looking for default checkpoint: {default_checkpoint}")
             if default_checkpoint.exists():
                 sam_checkpoint = str(default_checkpoint)
-                print(f"✅ Using default SAM checkpoint: {sam_checkpoint}")
+                print(f"Using default SAM checkpoint: {sam_checkpoint}")
             else:
-                print(f"❌ No SAM checkpoint found at: {default_checkpoint}")
-                print(f"⚠️  Please download: wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth -P models/")
+                print(f"No SAM checkpoint found at: {default_checkpoint}")
+                print(f"Warning: Please download: wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth -P models/")
                 return
         
         # Initialize SAM service
-        print(f"🔧 Initializing SAM service with checkpoint: {sam_checkpoint}")
+        print(f"Initializing SAM service with checkpoint: {sam_checkpoint}")
         sam_service = SamService(
             sam_checkpoint=sam_checkpoint,
             device="cpu",  # Use CPU by default
             cache_dir=session.get_session_dir(LABELING_SESSIONS_DIR) / "sam_cache",
         )
-        print(f"📦 Calling sam_service.initialize()...")
+        print(f"Calling sam_service.initialize()...")
         sam_service.initialize(Path(sam_checkpoint))
-        print(f"✅ SAM service initialized successfully!")
+        print(f"SAM service initialized successfully!")
         
         # Get all image files
         all_images = sorted(frame_dir.glob("*.jpg"))
@@ -996,33 +1060,33 @@ async def run_sam_segmentation(
         # Demo mode: Process only first frame for quick testing
         demo_frame_indices = [0]
         
-        print(f"🎯 Running SAM on demo frames {demo_frame_indices} (out of {len(all_images)} total) for session {session_id}")
+        print(f"Running SAM on demo frames {demo_frame_indices} (out of {len(all_images)} total) for session {session_id}")
         
         # Process specific frames
         for frame_index in demo_frame_indices:
             if frame_index >= len(all_images):
-                print(f"  ⚠️ Skipping frame {frame_index} (out of range)")
+                print(f"  Warning: Skipping frame {frame_index} (out of range)")
                 continue
             
             img_path = all_images[frame_index]
-            print(f"  📸 Processing frame {frame_index}: {img_path.name}")
+            print(f"  Processing frame {frame_index}: {img_path.name}")
             segments = sam_service.segment_frame(img_path, use_cache=True)
             segment_dicts = [seg.to_dict() for seg in segments]
             
             # Update segments for existing frame
             session.update_frame_segments(frame_index, segment_dicts)
-            print(f"     ✅ Found {len(segments)} segments, updated frame index {frame_index}")
+            print(f"     Found {len(segments)} segments, updated frame index {frame_index}")
         
         session.status = SessionStatus.IN_PROGRESS
         labeling_manager.update_session(session)
         
         sam_service.close()
         
-        print(f"🎉 SAM segmentation complete for session {session_id}!")
+        print(f"SAM segmentation complete for session {session_id}!")
         
     except Exception as exc:
-        print(f"❌ SAM segmentation FAILED for session {session_id}")
-        print(f"❌ Error: {exc}")
+        print(f"SAM segmentation FAILED for session {session_id}")
+        print(f"Error: {exc}")
         import traceback
         traceback.print_exc()
         session.status = SessionStatus.FAILED
