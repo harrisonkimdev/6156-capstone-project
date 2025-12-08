@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 import json
+import logging
 import math
 import numpy as np
 
@@ -27,6 +28,8 @@ try:  # Optional dependency (ultralytics)
     from ultralytics import YOLO as UltralyticsYOLO  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     UltralyticsYOLO = None  # type: ignore[assignment]
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -144,6 +147,165 @@ def detect_holds(
                 )
             )
     return detections
+
+
+def filter_detections(
+    detections: Sequence[HoldDetection],
+    image_paths: Sequence[Path],
+    *,
+    filter_chalk: bool = True,
+    filter_safety_holds: bool = True,
+    distinguish_volumes: bool = False,
+) -> tuple[List[HoldDetection], List[HoldDetection]]:
+    """Filter out false positive detections (chalk marks, safety holds, volumes).
+    
+    This function uses the hold_filters module to analyze each detection and
+    remove false positives based on color, shape, and texture features.
+    
+    Args:
+        detections: List of HoldDetection objects
+        image_paths: Corresponding image paths for feature analysis
+        filter_chalk: Enable chalk mark filtering
+        filter_safety_holds: Enable safety hold filtering
+        distinguish_volumes: Enable volume detection (volumes are usually not climbable)
+    
+    Returns:
+        Tuple of (valid_detections, filtered_detections)
+    """
+    try:
+        import cv2
+        from pose_ai.service.hold_filters import filter_single_detection
+    except ImportError as e:
+        LOGGER.warning("Hold filtering not available: %s. Returning all detections.", e)
+        return list(detections), []
+    
+    if not detections or not image_paths:
+        return list(detections), []
+    
+    # Load images once
+    images: dict[int, np.ndarray] = {}
+    for frame_idx in set(d.frame_index for d in detections):
+        if frame_idx < len(image_paths):
+            img = cv2.imread(str(image_paths[frame_idx]))
+            if img is not None:
+                images[frame_idx] = img
+    
+    valid_detections: List[HoldDetection] = []
+    filtered_detections: List[HoldDetection] = []
+    
+    for detection in detections:
+        frame_idx = detection.frame_index
+        
+        # Skip if image not available
+        if frame_idx not in images:
+            valid_detections.append(detection)
+            LOGGER.debug(f"Image not available for frame {frame_idx}, keeping detection")
+            continue
+        
+        image = images[frame_idx]
+        image_height, image_width = image.shape[:2]
+        
+        # Extract ROI around detection
+        x_pix = int(detection.x_center * image_width)
+        y_pix = int(detection.y_center * image_height)
+        w_pix = max(1, int(detection.width * image_width))
+        h_pix = max(1, int(detection.height * image_height))
+        
+        # Clamp to image bounds
+        x1 = max(0, x_pix - w_pix // 2)
+        y1 = max(0, y_pix - h_pix // 2)
+        x2 = min(image_width, x_pix + w_pix // 2)
+        y2 = min(image_height, y_pix + h_pix // 2)
+        
+        roi = image[y1:y2, x1:x2]
+        
+        if roi.size == 0:
+            valid_detections.append(detection)
+            continue
+        
+        # Create binary mask (simple threshold)
+        mask = np.ones_like(roi[:, :, 0], dtype=np.uint8) * 255
+        
+        # Filter the detection
+        bbox = (float(x1), float(y1), float(x2), float(y2))
+        image_shape = (image_height, image_width)
+        try:
+            analysis = filter_single_detection(
+                f"det_{frame_idx}_{detection.x_center:.2f}_{detection.y_center:.2f}",
+                mask,
+                roi,
+                image_shape,
+                bbox,
+                filter_chalk=filter_chalk,
+                filter_safety_holds=filter_safety_holds,
+                distinguish_volumes=distinguish_volumes,
+            )
+            
+            if analysis.is_valid_climbing_hold():
+                valid_detections.append(detection)
+            else:
+                LOGGER.debug(
+                    f"Filtered detection in frame {frame_idx}: {analysis.reason}"
+                )
+                filtered_detections.append(detection)
+        except Exception as e:
+            LOGGER.warning(f"Error filtering detection: {e}. Keeping detection.")
+            valid_detections.append(detection)
+    
+    filtered_count = len(filtered_detections)
+    if filtered_count > 0:
+        LOGGER.info(f"Filtered {filtered_count}/{len(detections)} detections")
+    
+    return valid_detections, filtered_detections
+
+
+def detect_and_filter_holds(
+    image_paths: Sequence[Path],
+    *,
+    model_name: str = "yolov8n.pt",
+    device: str | None = None,
+    imgsz: int = 640,
+    hold_labels: Sequence[str] = ("hold", "foot_hold", "volume", "jug", "crimp", "sloper", "pinch"),
+    filter_chalk: bool = True,
+    filter_safety_holds: bool = True,
+    distinguish_volumes: bool = False,
+) -> tuple[List[HoldDetection], List[HoldDetection]]:
+    """One-step function to detect and filter holds.
+    
+    Args:
+        image_paths: List of image paths to process
+        model_name: YOLO model to use
+        device: Device for inference (cpu, cuda, etc.)
+        imgsz: Input image size
+        hold_labels: Labels to consider as holds
+        filter_chalk: Enable chalk filtering
+        filter_safety_holds: Enable safety hold filtering
+        distinguish_volumes: Enable volume detection
+    
+    Returns:
+        Tuple of (valid_detections, filtered_detections)
+    """
+    # Step 1: Detect holds
+    detections = detect_holds(
+        image_paths,
+        model_name=model_name,
+        device=device,
+        imgsz=imgsz,
+        hold_labels=hold_labels,
+    )
+    
+    LOGGER.info(f"Detected {len(detections)} holds in {len(image_paths)} frames")
+    
+    # Step 2: Filter detections
+    valid, filtered = filter_detections(
+        detections,
+        image_paths,
+        filter_chalk=filter_chalk,
+        filter_safety_holds=filter_safety_holds,
+        distinguish_volumes=distinguish_volumes,
+    )
+    
+    return valid, filtered
 
 
 def cluster_holds(
@@ -488,6 +650,8 @@ __all__ = [
     "HoldDetection",
     "ClusteredHold",
     "detect_holds",
+    "filter_detections",
+    "detect_and_filter_holds",
     "cluster_holds",
     "track_holds",
     "cluster_tracks",
