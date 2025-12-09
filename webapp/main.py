@@ -460,9 +460,94 @@ async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> di
     }
 
 
+@app.post("/api/workflow/save-to-training-pool", response_class=JSONResponse)
+async def save_to_training_pool(request: Request) -> dict[str, object]:
+    """Save selected frames from current video to training pool."""
+    try:
+        data = await request.json()
+        upload_id = data.get("upload_id")
+        video_name = data.get("video_name")
+        
+        if not upload_id or not video_name:
+            raise HTTPException(status_code=400, detail="Missing upload_id or video_name")
+        
+        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        human_selected_dir = workflow_dir / "human_selected_frames"
+        
+        if not workflow_dir.exists():
+            raise HTTPException(status_code=404, detail="Workflow directory not found")
+        
+        if not human_selected_dir.exists() or len(list(human_selected_dir.glob("*.jpg"))) == 0:
+            raise HTTPException(status_code=400, detail="No frames selected. Please select at least one frame.")
+        
+        # Create training pool directory structure
+        training_pool_dir = ROOT_DIR / "data" / "training_pool"
+        training_pool_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use upload_id + video_name as unique identifier
+        pool_video_dir = training_pool_dir / f"{upload_id}_{video_name}"
+        
+        # Copy workflow directory to training pool
+        if pool_video_dir.exists():
+            # If already exists, remove and replace
+            shutil.rmtree(pool_video_dir)
+        
+        shutil.copytree(workflow_dir, pool_video_dir, dirs_exist_ok=True)
+        
+        LOGGER.info(f"Saved video '{video_name}' to training pool: {pool_video_dir}")
+        
+        # Count total videos and frames in pool
+        pool_videos = [d for d in training_pool_dir.iterdir() if d.is_dir()]
+        total_frames = 0
+        for video_dir in pool_videos:
+            selected_dir = video_dir / "human_selected_frames"
+            if selected_dir.exists():
+                total_frames += len(list(selected_dir.glob("*.jpg")))
+        
+        return {
+            "status": "success",
+            "message": f"Saved to training pool",
+            "total_videos": len(pool_videos),
+            "total_frames": total_frames,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.error(f"Failed to save to training pool: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflow/training-pool-info", response_class=JSONResponse)
+async def get_training_pool_info() -> dict[str, int]:
+    """Get training pool statistics."""
+    try:
+        training_pool_dir = ROOT_DIR / "data" / "training_pool"
+        
+        if not training_pool_dir.exists():
+            return {"video_count": 0, "frame_count": 0}
+        
+        pool_videos = [d for d in training_pool_dir.iterdir() if d.is_dir()]
+        total_frames = 0
+        
+        for video_dir in pool_videos:
+            selected_dir = video_dir / "human_selected_frames"
+            if selected_dir.exists():
+                total_frames += len(list(selected_dir.glob("*.jpg")))
+        
+        return {
+            "video_count": len(pool_videos),
+            "frame_count": total_frames,
+        }
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to get training pool info: {e}")
+        return {"video_count": 0, "frame_count": 0}
+
+
 @app.post("/api/workflow/train-frame-selector", response_class=JSONResponse)
 async def train_frame_selector(request: Request) -> dict[str, object]:
-    """Train frame selector model using manually selected frames."""
+    """Train frame selector model using manually selected frames from current video."""
     try:
         import sys
         SRC_DIR = ROOT_DIR / "src"

@@ -379,10 +379,21 @@
                 frame &nbsp;|&nbsp; <kbd>X</kbd> Deselect frame
               </div>
             </div>
-            <button id="btn-train-frame-selector"
-              style="width: 100%; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-              🚀 Train Frame Selector Model
-            </button>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button id="btn-save-to-pool"
+                style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                💾 Save to Training Pool
+              </button>
+              <button id="btn-train-frame-selector"
+                style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                🚀 Train Now (Current Video)
+              </button>
+            </div>
+            <div id="training-pool-info"
+              style="margin-top: 10px; padding: 10px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa;">
+              <strong>Training Pool:</strong> <span id="pool-video-count">0</span> videos, <span
+                id="pool-frame-count">0</span> frames
+            </div>
           </div>
         </div>
       </div>

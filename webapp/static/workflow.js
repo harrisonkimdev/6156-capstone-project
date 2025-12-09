@@ -41,10 +41,14 @@ function setupEventListeners() {
 
   // Frame selection UI
   document.getElementById('frame-slider')?.addEventListener('input', handleFrameSliderChange);
+  document.getElementById('btn-save-to-pool')?.addEventListener('click', saveToTrainingPool);
   document.getElementById('btn-train-frame-selector')?.addEventListener('click', trainFrameSelector);
 
   // Keyboard shortcuts for frame selection
   document.addEventListener('keydown', handleKeyboardShortcuts);
+
+  // Load training pool info on page load
+  loadTrainingPoolInfo();
 }
 
 /**
@@ -750,7 +754,71 @@ async function deselectCurrentFrame() {
 }
 
 /**
- * Train frame selector model
+ * Save selected frames to training pool
+ */
+async function saveToTrainingPool() {
+  if (frameSelectionState.selectedFrames.size === 0) {
+    alert('Please select at least one frame before saving');
+    return;
+  }
+
+  if (!confirm(`Save ${frameSelectionState.selectedFrames.size} selected frames to training pool?`)) {
+    return;
+  }
+
+  try {
+    showStatus('step-1', 'Saving to training pool...', 'info');
+
+    const response = await fetch('/api/workflow/save-to-training-pool', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_id: frameSelectionState.uploadId,
+        video_name: frameSelectionState.videoName,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to save to training pool');
+    }
+
+    const data = await response.json();
+
+    showStatus('step-1', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
+    alert(`✓ Saved to training pool!\n\nTotal videos: ${data.total_videos}\nTotal frames: ${data.total_frames}`);
+
+    // Update pool info display
+    loadTrainingPoolInfo();
+
+  } catch (error) {
+    console.error('Failed to save to pool:', error);
+    showStatus('step-1', `Save failed: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Load training pool info
+ */
+async function loadTrainingPoolInfo() {
+  try {
+    const response = await fetch('/api/workflow/training-pool-info');
+    if (!response.ok) {
+      console.warn('Failed to load training pool info');
+      return;
+    }
+
+    const data = await response.json();
+
+    document.getElementById('pool-video-count').textContent = data.video_count || 0;
+    document.getElementById('pool-frame-count').textContent = data.frame_count || 0;
+
+  } catch (error) {
+    console.error('Failed to load pool info:', error);
+  }
+}
+
+/**
+ * Train frame selector model (current video only)
  */
 async function trainFrameSelector() {
   if (frameSelectionState.selectedFrames.size === 0) {
@@ -758,7 +826,7 @@ async function trainFrameSelector() {
     return;
   }
 
-  if (!confirm(`Train frame selector model with ${frameSelectionState.selectedFrames.size} selected frames?`)) {
+  if (!confirm(`Train frame selector model with ${frameSelectionState.selectedFrames.size} selected frames from current video only?`)) {
     return;
   }
 
@@ -785,8 +853,8 @@ async function trainFrameSelector() {
       showStatus('step-1', `${data.message} (${data.note})`, 'info');
       alert(`✓ ${data.message}\n\nNote: ${data.note}`);
     } else {
-      showStatus('step-1', `Training complete! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`, 'success');
-      alert(`✓ Training complete!\nAccuracy: ${(data.accuracy * 100).toFixed(1)}%`);
+      showStatus('step-1', `Training complete!`, 'success');
+      alert(`✓ Training complete!\n\nTest F1 Score: ${(data.results?.metrics?.f1 * 100 || 0).toFixed(1)}%`);
     }
 
   } catch (error) {
