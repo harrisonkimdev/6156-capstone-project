@@ -17,6 +17,7 @@ let firstFrameImageUrl = null; // Store first frame for both preview and hold de
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM Content Loaded - Setting up event listeners');
   setupEventListeners();
   loadSessions();
   loadTrainingJobs();
@@ -54,11 +55,56 @@ document.addEventListener('DOMContentLoaded', () => {
  * Setup event listeners
  */
 function setupEventListeners() {
-  document.getElementById('btn-extract-frames').addEventListener('click', extractFrames);
-  document.getElementById('btn-create-session').addEventListener('click', createSession);
-  document.getElementById('btn-start-training').addEventListener('click', startTraining);
-  document.getElementById('btn-upload-gcs').addEventListener('click', uploadToGCS);
-  document.getElementById('btn-clear-data')?.addEventListener('click', clearAllData);
+  console.log('Setting up event listeners...');
+  
+  // Video file selection - show first frame preview
+  const videoFileInput = document.getElementById('video-file');
+  if (videoFileInput) {
+    console.log('Found video-file input, attaching change listener');
+    videoFileInput.addEventListener('change', function(event) {
+      console.log('Video file changed event triggered');
+      handleVideoFileSelection(event);
+    });
+  } else {
+    console.error('video-file element not found!');
+  }
+
+  // Hold color and route difficulty dropdown changes
+  const holdColorSelect = document.getElementById('hold-color');
+  if (holdColorSelect) {
+    holdColorSelect.addEventListener('change', updateVideoPreview);
+  }
+  
+  const routeDifficultySelect = document.getElementById('route-difficulty');
+  if (routeDifficultySelect) {
+    routeDifficultySelect.addEventListener('change', updateVideoPreview);
+  }
+
+  // Other event listeners
+  const btnExtractFrames = document.getElementById('btn-extract-frames');
+  if (btnExtractFrames) {
+    btnExtractFrames.addEventListener('click', extractFrames);
+  }
+  
+  const btnCreateSession = document.getElementById('btn-create-session');
+  if (btnCreateSession) {
+    btnCreateSession.addEventListener('click', createSession);
+  }
+  
+  const btnStartTraining = document.getElementById('btn-start-training');
+  if (btnStartTraining) {
+    btnStartTraining.addEventListener('click', startTraining);
+  }
+  
+  const btnUploadGCS = document.getElementById('btn-upload-gcs');
+  if (btnUploadGCS) {
+    btnUploadGCS.addEventListener('click', uploadToGCS);
+  }
+  
+  const btnClearData = document.getElementById('btn-clear-data');
+  if (btnClearData) {
+    btnClearData.addEventListener('click', clearAllData);
+  }
 
   // Pipeline mode toggle
   document.querySelectorAll('input[name="pipeline-mode"]').forEach(radio => {
@@ -66,24 +112,38 @@ function setupEventListeners() {
   });
 
   // Frame selection UI
-  document.getElementById('frame-slider')?.addEventListener('input', handleFrameSliderChange);
-  document.getElementById('btn-save-to-pool')?.addEventListener('click', saveToTrainingPool);
-  document.getElementById('btn-train-frame-selector')?.addEventListener('click', trainFrameSelector);
-  document.getElementById('btn-view-all')?.addEventListener('click', () => setViewMode('all'));
-  document.getElementById('btn-view-selected')?.addEventListener('click', () => setViewMode('selected'));
-
-  // Video file selection - show first frame preview
-  document.getElementById('video-file').addEventListener('change', handleVideoFileSelection);
-
-  // Hold color and route difficulty dropdown changes
-  document.getElementById('hold-color').addEventListener('change', updateVideoPreview);
-  document.getElementById('route-difficulty').addEventListener('change', updateVideoPreview);
+  const frameSlider = document.getElementById('frame-slider');
+  if (frameSlider) {
+    frameSlider.addEventListener('input', handleFrameSliderChange);
+  }
+  
+  const btnSaveToPool = document.getElementById('btn-save-to-pool');
+  if (btnSaveToPool) {
+    btnSaveToPool.addEventListener('click', saveToTrainingPool);
+  }
+  
+  const btnTrainFrameSelector = document.getElementById('btn-train-frame-selector');
+  if (btnTrainFrameSelector) {
+    btnTrainFrameSelector.addEventListener('click', trainFrameSelector);
+  }
+  
+  const btnViewAll = document.getElementById('btn-view-all');
+  if (btnViewAll) {
+    btnViewAll.addEventListener('click', () => setViewMode('all'));
+  }
+  
+  const btnViewSelected = document.getElementById('btn-view-selected');
+  if (btnViewSelected) {
+    btnViewSelected.addEventListener('click', () => setViewMode('selected'));
+  }
 
   // Keyboard shortcuts for frame selection
   document.addEventListener('keydown', handleKeyboardShortcuts);
 
   // Load training pool info on page load
   loadTrainingPoolInfo();
+  
+  console.log('Event listeners setup complete');
 }
 
 /**
@@ -1186,7 +1246,7 @@ function handleVideoFileSelection(event) {
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    
+
     // Set crossOrigin for blob URLs
     video.crossOrigin = 'anonymous';
 
@@ -1201,7 +1261,7 @@ function handleVideoFileSelection(event) {
 
     video.onseeked = () => {
       if (!metadataLoaded) return;
-      
+
       console.log('Frame seeked, drawing canvas');
       // Draw frame to canvas
       canvas.width = video.videoWidth;
@@ -1213,7 +1273,7 @@ function handleVideoFileSelection(event) {
         if (blob) {
           const previewUrl = URL.createObjectURL(blob);
           firstFrameImageUrl = previewUrl; // Store for hold detection
-          
+
           const previewImg = document.getElementById('first-frame-preview');
           if (previewImg) {
             previewImg.src = previewUrl;
@@ -1240,12 +1300,12 @@ function handleVideoFileSelection(event) {
     // Load video file
     const fileUrl = URL.createObjectURL(file);
     video.src = fileUrl;
-    
+
     // Add error handling
     video.onerror = () => {
       console.error('Video load error');
     };
-    
+
     video.load();
   } catch (error) {
     console.error('Error handling video file:', error);
