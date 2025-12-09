@@ -261,10 +261,6 @@ async def run_frame_selector_inference(upload_id: str, video_name: str) -> None:
 @app.post("/api/workflow/extract-frames", response_class=JSONResponse)
 async def workflow_extract_frames(
     video: UploadFile = File(...),
-    motion_threshold: float = 5.0,
-    similarity_threshold: float = 0.8,
-    save_all_frames: bool = True,
-    use_pose_similarity: bool = True,
 ) -> dict[str, object]:
     """Extract frames from uploaded video for workflow (accepts file upload)."""
     import sys
@@ -293,19 +289,16 @@ async def workflow_extract_frames(
         # Extract frames - use workflow_frames root, let extract_frames_with_motion create video folder
         output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
         print(f"[FRAME EXTRACTION] Output root: {output_root}")
-        print(f"[FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
-        print(f"[FRAME EXTRACTION] Save all frames: {save_all_frames}")
-        print(f"[FRAME EXTRACTION] Use pose similarity: {use_pose_similarity}")
         
         result = extract_frames_with_motion(
             video_path,
             output_root=output_root,
-            motion_threshold=motion_threshold,
-            similarity_threshold=similarity_threshold,
+            motion_threshold=5.0,  # Default value
+            similarity_threshold=0.8,  # Default value
             write_manifest=True,
             overwrite=True,
-            save_all_frames=save_all_frames,
-            use_pose_similarity=use_pose_similarity,
+            save_all_frames=True,
+            use_pose_similarity=True,
         )
         
         print(f"[FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
@@ -335,12 +328,7 @@ async def workflow_extract_frames(
 
 
 @app.get("/api/workflow/extract-test-video", response_class=JSONResponse)
-async def extract_test_video(
-    motion_threshold: float = 5.0,
-    similarity_threshold: float = 0.8,
-    save_all_frames: bool = True,
-    use_pose_similarity: bool = True,
-) -> dict[str, object]:
+async def extract_test_video() -> dict[str, object]:
     """Extract frames from hardcoded test video using motion detection (for development)."""
     import sys
     
@@ -364,18 +352,15 @@ async def extract_test_video(
         output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
         print(f"[TEST FRAME EXTRACTION] Output root: {output_root}")
         print(f"[TEST FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
-        print(f"[TEST FRAME EXTRACTION] Save all frames: {save_all_frames}")
-        print(f"[TEST FRAME EXTRACTION] Use pose similarity: {use_pose_similarity}")
-        
         result = extract_frames_with_motion(
             test_video_path,
             output_root=output_root,
-            motion_threshold=motion_threshold,
-            similarity_threshold=similarity_threshold,
+            motion_threshold=5.0,  # Default value
+            similarity_threshold=0.8,  # Default value
             write_manifest=True,
             overwrite=True,
-            save_all_frames=save_all_frames,
-            use_pose_similarity=use_pose_similarity,
+            save_all_frames=True,
+            use_pose_similarity=True,
         )
         
         print(f"[TEST FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
