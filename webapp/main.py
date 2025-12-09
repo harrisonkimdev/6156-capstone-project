@@ -229,6 +229,8 @@ async def workflow_extract_frames(
     video: UploadFile = File(...),
     motion_threshold: float = 5.0,
     similarity_threshold: float = 0.8,
+    save_all_frames: bool = True,
+    use_pose_similarity: bool = True,
 ) -> dict[str, object]:
     """Extract frames from uploaded video for workflow (accepts file upload)."""
     import sys
@@ -258,6 +260,8 @@ async def workflow_extract_frames(
         output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
         print(f"[FRAME EXTRACTION] Output root: {output_root}")
         print(f"[FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
+        print(f"[FRAME EXTRACTION] Save all frames: {save_all_frames}")
+        print(f"[FRAME EXTRACTION] Use pose similarity: {use_pose_similarity}")
         
         result = extract_frames_with_motion(
             video_path,
@@ -266,6 +270,8 @@ async def workflow_extract_frames(
             similarity_threshold=similarity_threshold,
             write_manifest=True,
             overwrite=True,
+            save_all_frames=save_all_frames,
+            use_pose_similarity=use_pose_similarity,
         )
         
         print(f"[FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
@@ -288,6 +294,8 @@ async def workflow_extract_frames(
 async def extract_test_video(
     motion_threshold: float = 5.0,
     similarity_threshold: float = 0.8,
+    save_all_frames: bool = True,
+    use_pose_similarity: bool = True,
 ) -> dict[str, object]:
     """Extract frames from hardcoded test video using motion detection (for development)."""
     import sys
@@ -312,6 +320,8 @@ async def extract_test_video(
         output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
         print(f"[TEST FRAME EXTRACTION] Output root: {output_root}")
         print(f"[TEST FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
+        print(f"[TEST FRAME EXTRACTION] Save all frames: {save_all_frames}")
+        print(f"[TEST FRAME EXTRACTION] Use pose similarity: {use_pose_similarity}")
         
         result = extract_frames_with_motion(
             test_video_path,
@@ -320,6 +330,8 @@ async def extract_test_video(
             similarity_threshold=similarity_threshold,
             write_manifest=True,
             overwrite=True,
+            save_all_frames=save_all_frames,
+            use_pose_similarity=use_pose_similarity,
         )
         
         print(f"[TEST FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
@@ -358,6 +370,93 @@ async def use_test_frames() -> dict[str, object]:
         "manifest_path": str(test_frame_dir / "manifest.json"),
         "test_mode": True,
         "message": "Using pre-extracted test frames (instant!)",
+    }
+
+
+# ========== Frame Selection Learning Endpoints ==========
+
+@app.get("/api/workflow/frames/{upload_id}/{video_name}", response_class=JSONResponse)
+async def get_frames_for_selection(upload_id: str, video_name: str) -> dict[str, object]:
+    """Get all frames from all_frames/ directory for manual selection."""
+    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    all_frames_dir = workflow_dir / "all_frames"
+    human_selected_dir = workflow_dir / "human_selected_frames"
+    
+    if not all_frames_dir.exists():
+        raise HTTPException(status_code=404, detail=f"all_frames directory not found: {all_frames_dir}")
+    
+    # Get all frame files
+    frame_files = sorted(all_frames_dir.glob(f"{video_name}_frame_*.jpg"))
+    
+    # Get already selected frames
+    selected_files = set()
+    if human_selected_dir.exists():
+        selected_files = {f.name for f in human_selected_dir.glob(f"{video_name}_frame_*.jpg")}
+    
+    frames = []
+    for frame_path in frame_files:
+        frames.append({
+            "filename": frame_path.name,
+            "path": f"/repo/data/workflow_frames/{upload_id}/{video_name}/all_frames/{frame_path.name}",
+            "selected": frame_path.name in selected_files,
+        })
+    
+    return {
+        "status": "success",
+        "upload_id": upload_id,
+        "video_name": video_name,
+        "total_frames": len(frames),
+        "selected_count": len(selected_files),
+        "frames": frames,
+    }
+
+
+@app.post("/api/workflow/frames/{upload_id}/{video_name}/select", response_class=JSONResponse)
+async def select_frame(upload_id: str, video_name: str, frame_name: str) -> dict[str, object]:
+    """Copy a frame from all_frames/ to human_selected_frames/."""
+    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    all_frames_dir = workflow_dir / "all_frames"
+    human_selected_dir = workflow_dir / "human_selected_frames"
+    
+    source_path = all_frames_dir / frame_name
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail=f"Frame not found: {frame_name}")
+    
+    # Ensure human_selected_frames/ directory exists
+    human_selected_dir.mkdir(parents=True, exist_ok=True)
+    
+    dest_path = human_selected_dir / frame_name
+    
+    # Copy file
+    shutil.copy2(source_path, dest_path)
+    
+    LOGGER.info("Selected frame: %s -> %s", source_path, dest_path)
+    
+    return {
+        "status": "success",
+        "message": f"Frame {frame_name} selected",
+        "frame_name": frame_name,
+    }
+
+
+@app.delete("/api/workflow/frames/{upload_id}/{video_name}/select/{frame_name}", response_class=JSONResponse)
+async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> dict[str, object]:
+    """Remove a frame from human_selected_frames/."""
+    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    human_selected_dir = workflow_dir / "human_selected_frames"
+    
+    frame_path = human_selected_dir / frame_name
+    if not frame_path.exists():
+        raise HTTPException(status_code=404, detail=f"Frame not found in human_selected_frames: {frame_name}")
+    
+    frame_path.unlink()
+    
+    LOGGER.info("Deselected frame: %s", frame_path)
+    
+    return {
+        "status": "success",
+        "message": f"Frame {frame_name} deselected",
+        "frame_name": frame_name,
     }
 
 

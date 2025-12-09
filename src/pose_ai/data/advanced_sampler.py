@@ -147,6 +147,7 @@ def extract_frames_with_motion(
     initial_sampling_rate: float = 0.1,  # Sample every 0.1s initially
     write_manifest: bool = True,
     overwrite: bool = False,
+    save_all_frames: bool = False,  # Save all frames to all_frames/ directory
 ) -> FrameExtractionResult:
     """Extract frames based on motion detection and pose similarity.
 
@@ -169,6 +170,7 @@ def extract_frames_with_motion(
         initial_sampling_rate: Initial frame sampling rate in seconds
         write_manifest: Write manifest.json file
         overwrite: Overwrite existing frames
+        save_all_frames: Save all extracted frames to 'all_frames/' subdirectory for manual selection
 
     Returns:
         FrameExtractionResult with selected frames
@@ -346,26 +348,43 @@ def extract_frames_with_motion(
     LOGGER.info("Selected %d frames after filtering", len(selected_indices))
     print(f"[SAMPLER] Selected {len(selected_indices)} diverse frames, saving to disk...")
 
-    # Step 6: Save selected frames
+    # Step 5.5: Save ALL frames to all_frames/ directory if requested
+    if save_all_frames:
+        all_frames_dir = ensure_directory(frame_dir / "all_frames")
+        print(f"[SAMPLER] Saving all {len(temp_frames)} frames to {all_frames_dir}...")
+        
+        for frame_idx, (_, frame, timestamp) in enumerate(temp_frames):
+            # Use original frame index to maintain correspondence with selected_frames
+            frame_filename = f"{source_path.stem}_frame_{frame_idx:06d}.jpg"
+            frame_path = all_frames_dir / frame_filename
+            cv2.imwrite(str(frame_path), frame)
+        
+        # Create empty human_selected_frames/ directory for manual selection
+        human_selected_frames_dir = ensure_directory(frame_dir / "human_selected_frames")
+        print(f"[SAMPLER] Created empty directory for manual frame selection: {human_selected_frames_dir}")
+
+    # Step 6: Save selected frames (auto-selected by algorithm) to selected_frames/
+    selected_frames_dir = ensure_directory(frame_dir / "selected_frames")
     saved_paths: list[Path] = []
     manifest_records: list[dict[str, object]] = []
 
-    for saved_idx, orig_idx in enumerate(selected_indices):
+    for selection_order, orig_idx in enumerate(selected_indices):
         if orig_idx >= len(temp_frames):
             continue
 
         _, frame, timestamp = temp_frames[orig_idx]
-        frame_filename = f"{source_path.stem}_frame_{saved_idx:04d}.jpg"
-        frame_path = frame_dir / frame_filename
+        # Use original frame index to maintain correspondence with all_frames/
+        frame_filename = f"{source_path.stem}_frame_{orig_idx:06d}.jpg"
+        frame_path = selected_frames_dir / frame_filename
         cv2.imwrite(str(frame_path), frame)
         saved_paths.append(frame_path)
 
         manifest_records.append(
             {
                 "frame_index": int(orig_idx),
-                "saved_index": int(saved_idx),
+                "selection_order": int(selection_order),
                 "timestamp_seconds": float(timestamp),
-                "relative_path": frame_filename,
+                "relative_path": f"selected_frames/{frame_filename}",
                 "motion_score": float(motion_scores[orig_idx]) if orig_idx < len(motion_scores) else 0.0,
             }
         )

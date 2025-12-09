@@ -31,6 +31,18 @@ function setupEventListeners() {
   document.getElementById('btn-create-session').addEventListener('click', createSession);
   document.getElementById('btn-start-training').addEventListener('click', startTraining);
   document.getElementById('btn-upload-gcs').addEventListener('click', uploadToGCS);
+
+  // Pipeline mode toggle
+  document.querySelectorAll('input[name="pipeline-mode"]').forEach(radio => {
+    radio.addEventListener('change', handlePipelineModeChange);
+  });
+
+  // Frame selection UI
+  document.getElementById('frame-slider')?.addEventListener('input', handleFrameSliderChange);
+  document.getElementById('btn-train-frame-selector')?.addEventListener('click', trainFrameSelector);
+
+  // Keyboard shortcuts for frame selection
+  document.addEventListener('keydown', handleKeyboardShortcuts);
 }
 
 /**
@@ -71,6 +83,16 @@ async function extractFrames() {
     showStatus('step-1', `Extracted ${data.frame_count} frames`, 'success');
     setStepCompleted('step-1');
     setStepActive('step-2');
+
+    // Load frames for manual selection if in frame selection mode
+    const pipelineMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
+    if (pipelineMode === 'frame_selection') {
+      // Extract upload_id and video_name from frame_directory
+      const pathParts = data.frame_directory.split('/');
+      const uploadId = pathParts[pathParts.length - 2];
+      const videoName = pathParts[pathParts.length - 1];
+      await loadFramesForSelection(uploadId, videoName);
+    }
 
   } catch (error) {
     console.error('Frame extraction failed:', error);
@@ -438,4 +460,240 @@ function setStepActive(stepId) {
  */
 function setStepCompleted(stepId) {
   document.getElementById(stepId).classList.add('completed');
+}
+
+// ========== Frame Selection Learning ==========
+
+let frameSelectionState = {
+  uploadId: null,
+  videoName: null,
+  frames: [],
+  currentIndex: 0,
+  selectedFrames: new Set(),
+};
+
+/**
+ * Handle pipeline mode change
+ */
+function handlePipelineModeChange(event) {
+  const mode = event.target.value;
+  const frameSelectionUI = document.getElementById('frame-selection-ui');
+  const step2 = document.getElementById('step-2');
+  const step3 = document.getElementById('step-3');
+  const step4 = document.getElementById('step-4');
+
+  if (mode === 'frame_selection') {
+    // Show frame selection UI, hide hold detection steps
+    frameSelectionUI.style.display = 'block';
+    step2.style.display = 'none';
+    step3.style.display = 'none';
+    step4.style.display = 'none';
+  } else {
+    // Hide frame selection UI, show hold detection steps
+    frameSelectionUI.style.display = 'none';
+    step2.style.display = 'block';
+    step3.style.display = 'block';
+    step4.style.display = 'block';
+  }
+}
+
+/**
+ * Load frames for selection after extraction
+ */
+async function loadFramesForSelection(uploadId, videoName) {
+  try {
+    const response = await fetch(`/api/workflow/frames/${uploadId}/${videoName}`);
+    if (!response.ok) {
+      throw new Error('Failed to load frames');
+    }
+
+    const data = await response.json();
+    frameSelectionState.uploadId = uploadId;
+    frameSelectionState.videoName = videoName;
+    frameSelectionState.frames = data.frames;
+    frameSelectionState.currentIndex = 0;
+    frameSelectionState.selectedFrames = new Set(
+      data.frames.filter(f => f.selected).map(f => f.filename)
+    );
+
+    // Update UI
+    document.getElementById('frame-total').textContent = data.frames.length;
+    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    document.getElementById('frame-slider').max = data.frames.length - 1;
+
+    // Load first frame
+    updateFramePreview();
+
+  } catch (error) {
+    console.error('Failed to load frames:', error);
+    showStatus('step-1', `Error loading frames: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Update frame preview
+ */
+function updateFramePreview() {
+  const frame = frameSelectionState.frames[frameSelectionState.currentIndex];
+  if (!frame) return;
+
+  document.getElementById('frame-preview').src = frame.path;
+  document.getElementById('frame-current').textContent = frameSelectionState.currentIndex + 1;
+  document.getElementById('frame-slider').value = frameSelectionState.currentIndex;
+
+  // Update selected badge
+  const badge = document.getElementById('frame-selected-badge');
+  if (frameSelectionState.selectedFrames.has(frame.filename)) {
+    badge.style.display = 'block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/**
+ * Handle frame slider change
+ */
+function handleFrameSliderChange(event) {
+  frameSelectionState.currentIndex = parseInt(event.target.value);
+  updateFramePreview();
+}
+
+/**
+ * Handle keyboard shortcuts
+ */
+function handleKeyboardShortcuts(event) {
+  // Only handle shortcuts when frame selection UI is visible
+  const frameSelectionUI = document.getElementById('frame-selection-ui');
+  if (!frameSelectionUI || frameSelectionUI.style.display === 'none') {
+    return;
+  }
+
+  // Ignore if typing in input field
+  if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+    return;
+  }
+
+  switch (event.key.toLowerCase()) {
+    case 'arrowleft':
+      event.preventDefault();
+      navigateFrame(-1);
+      break;
+    case 'arrowright':
+      event.preventDefault();
+      navigateFrame(1);
+      break;
+    case 's':
+      event.preventDefault();
+      selectCurrentFrame();
+      break;
+    case 'x':
+      event.preventDefault();
+      deselectCurrentFrame();
+      break;
+  }
+}
+
+/**
+ * Navigate to next/previous frame
+ */
+function navigateFrame(direction) {
+  const newIndex = frameSelectionState.currentIndex + direction;
+  if (newIndex >= 0 && newIndex < frameSelectionState.frames.length) {
+    frameSelectionState.currentIndex = newIndex;
+    updateFramePreview();
+  }
+}
+
+/**
+ * Select current frame
+ */
+async function selectCurrentFrame() {
+  const frame = frameSelectionState.frames[frameSelectionState.currentIndex];
+  if (!frame || frameSelectionState.selectedFrames.has(frame.filename)) {
+    return; // Already selected
+  }
+
+  try {
+    const response = await fetch(
+      `/api/workflow/frames/${frameSelectionState.uploadId}/${frameSelectionState.videoName}/select?frame_name=${frame.filename}`,
+      { method: 'POST' }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to select frame');
+    }
+
+    frameSelectionState.selectedFrames.add(frame.filename);
+    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    updateFramePreview();
+
+  } catch (error) {
+    console.error('Failed to select frame:', error);
+  }
+}
+
+/**
+ * Deselect current frame
+ */
+async function deselectCurrentFrame() {
+  const frame = frameSelectionState.frames[frameSelectionState.currentIndex];
+  if (!frame || !frameSelectionState.selectedFrames.has(frame.filename)) {
+    return; // Not selected
+  }
+
+  try {
+    const response = await fetch(
+      `/api/workflow/frames/${frameSelectionState.uploadId}/${frameSelectionState.videoName}/select/${frame.filename}`,
+      { method: 'DELETE' }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to deselect frame');
+    }
+
+    frameSelectionState.selectedFrames.delete(frame.filename);
+    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    updateFramePreview();
+
+  } catch (error) {
+    console.error('Failed to deselect frame:', error);
+  }
+}
+
+/**
+ * Train frame selector model
+ */
+async function trainFrameSelector() {
+  if (frameSelectionState.selectedFrames.size === 0) {
+    alert('Please select at least one frame before training');
+    return;
+  }
+
+  if (!confirm(`Train frame selector model with ${frameSelectionState.selectedFrames.size} selected frames?`)) {
+    return;
+  }
+
+  try {
+    showStatus('step-1', 'Training frame selector model...', 'info');
+
+    const response = await fetch('/api/workflow/train-frame-selector', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_id: frameSelectionState.uploadId,
+        video_name: frameSelectionState.videoName,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Training failed');
+    }
+
+    const data = await response.json();
+    showStatus('step-1', `Training complete! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`, 'success');
+
+  } catch (error) {
+    console.error('Training failed:', error);
+    showStatus('step-1', `Training failed: ${error.message}`, 'error');
+  }
 }
