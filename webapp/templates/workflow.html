@@ -14,8 +14,8 @@
     }
 
     .workflow-steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      display: flex;
+      flex-direction: column;
       gap: 20px;
       margin-bottom: 30px;
     }
@@ -257,9 +257,9 @@
       <div id="step-1" class="step-card active">
         <div class="step-header">
           <div class="step-number">1</div>
-          <div class="step-title">Extract Frames</div>
+          <div class="step-title" id="step-1-title">Extract Frames</div>
         </div>
-        <div class="step-content">
+        <div class="step-content" id="step-1-content">
           Upload a climbing video and extract frames.
         </div>
 
