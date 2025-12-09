@@ -366,7 +366,7 @@ async function loadSessions() {
     const container = document.getElementById('sessions-container');
 
     if (data.sessions.length === 0) {
-      container.innerHTML = '<p style="color: #888;">No sessions yet. Create one in Step 2.</p>';
+      container.innerHTML = '<p style="color: #888;">No sessions yet. Start segmentation to create one.</p>';
       return;
     }
 
@@ -405,7 +405,7 @@ async function loadTrainingJobs() {
     const container = document.getElementById('jobs-container');
 
     if (data.jobs.length === 0) {
-      container.innerHTML = '<p style="color: #888;">No training jobs yet. Start one in Step 3.</p>';
+      container.innerHTML = '<p style="color: #888;">No training jobs yet. Train after labeling/selection.</p>';
       return;
     }
 
