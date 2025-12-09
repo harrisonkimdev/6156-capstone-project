@@ -1181,45 +1181,75 @@ function handleVideoFileSelection(event) {
   document.getElementById('preview-filename').textContent = file.name;
   document.getElementById('first-frame-preview').src = '';
 
-  // Extract first frame using video element and canvas
-  const video = document.createElement('video');
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  try {
+    // Extract first frame using video element and canvas
+    const video = document.createElement('video');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Set crossOrigin for blob URLs
+    video.crossOrigin = 'anonymous';
 
-  video.onloadedmetadata = () => {
-    // Seek to first frame (very small offset to ensure it's loaded)
-    video.currentTime = 0.1;
-  };
+    let metadataLoaded = false;
 
-  video.onseeked = () => {
-    // Draw frame to canvas
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+    video.onloadedmetadata = () => {
+      console.log('Video metadata loaded');
+      metadataLoaded = true;
+      // Seek to first frame
+      video.currentTime = 0;
+    };
 
-    // Convert to blob and create preview URL
-    canvas.toBlob(blob => {
-      const previewUrl = URL.createObjectURL(blob);
-      firstFrameImageUrl = previewUrl; // Store for hold detection
-      document.getElementById('first-frame-preview').src = previewUrl;
+    video.onseeked = () => {
+      if (!metadataLoaded) return;
       
-      // Also display in hold detection UI
-      document.getElementById('hold-labeling-frame').src = previewUrl;
-      
-      // Show hold labeling UI
-      const holdLabelingUI = document.getElementById('hold-labeling-ui');
-      if (holdLabelingUI) {
-        holdLabelingUI.style.display = 'block';
-      }
-    }, 'image/jpeg', 0.8);
+      console.log('Frame seeked, drawing canvas');
+      // Draw frame to canvas
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
 
-    video.pause();
-  };
+      // Convert to blob and create preview URL
+      canvas.toBlob(blob => {
+        if (blob) {
+          const previewUrl = URL.createObjectURL(blob);
+          firstFrameImageUrl = previewUrl; // Store for hold detection
+          
+          const previewImg = document.getElementById('first-frame-preview');
+          if (previewImg) {
+            previewImg.src = previewUrl;
+            console.log('Preview image set');
+          }
 
-  // Load video file
-  const fileUrl = URL.createObjectURL(file);
-  video.src = fileUrl;
-  video.load();
+          // Also display in hold detection UI
+          const holdLabelingFrame = document.getElementById('hold-labeling-frame');
+          if (holdLabelingFrame) {
+            holdLabelingFrame.src = previewUrl;
+          }
+
+          // Show hold labeling UI
+          const holdLabelingUI = document.getElementById('hold-labeling-ui');
+          if (holdLabelingUI) {
+            holdLabelingUI.style.display = 'block';
+          }
+        }
+      }, 'image/jpeg', 0.8);
+
+      video.pause();
+    };
+
+    // Load video file
+    const fileUrl = URL.createObjectURL(file);
+    video.src = fileUrl;
+    
+    // Add error handling
+    video.onerror = () => {
+      console.error('Video load error');
+    };
+    
+    video.load();
+  } catch (error) {
+    console.error('Error handling video file:', error);
+  }
 
   // Update metadata display
   updateVideoPreview();
