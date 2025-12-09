@@ -253,37 +253,14 @@
 
   <div class="workflow-container">
     <div class="workflow-steps">
-      <!-- Step 1: Extract Frames -->
+      <!-- Step 1: Upload Video -->
       <div id="step-1" class="step-card active">
         <div class="step-header">
           <div class="step-number">1</div>
-          <div class="step-title" id="step-1-title">Extract Frames</div>
+          <div class="step-title" id="step-1-title">Upload Video</div>
         </div>
         <div class="step-content" id="step-1-content">
-          Upload a climbing video and extract frames.
-        </div>
-
-        <!-- Pipeline Mode Selection -->
-        <div class="form-group">
-          <label style="display: block; margin-bottom: 10px; font-weight: bold; color: #fff;">Select Pipeline
-            Mode</label>
-          <div class="pipeline-mode-buttons" style="display: flex; gap: 10px; margin-top: 8px;">
-            <input type="radio" name="pipeline-mode" id="mode-hold-detection" value="hold_detection" checked
-              style="display: none;">
-            <label for="mode-hold-detection"
-              style="flex: 1; padding: 15px 20px; background: #0066cc; color: white; border: 3px solid #0066cc; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; transition: all 0.2s; font-size: 14px;">
-              🎯 Hold Detection<br><span style="font-size: 11px; font-weight: normal; opacity: 0.9;">Detect and label
-                climbing holds</span>
-            </label>
-
-            <input type="radio" name="pipeline-mode" id="mode-frame-selection" value="frame_selection"
-              style="display: none;">
-            <label for="mode-frame-selection"
-              style="flex: 1; padding: 15px 20px; background: #333; color: #aaa; border: 3px solid #555; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; transition: all 0.2s; font-size: 14px;">
-              ⭐ Frame Selection<br><span style="font-size: 11px; font-weight: normal; opacity: 0.8;">Learn to select key
-                frames</span>
-            </label>
-          </div>
+          Upload a climbing video to start segmentation and key frame selection.
         </div>
 
         <div class="form-group">

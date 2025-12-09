@@ -21,27 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSessions();
   loadTrainingJobs();
 
-  // Initialize pipeline mode UI on page load
-  const pipelineMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
+  // Default: show both hold labeling and key frame selection flow
   const frameSelectionUI = document.getElementById('frame-selection-ui');
   const step2 = document.getElementById('step-2');
   const step3 = document.getElementById('step-3');
   const step4 = document.getElementById('step-4');
 
-  if (pipelineMode === 'frame_selection') {
-    frameSelectionUI.style.display = 'block';
-    step2.style.display = 'none';
-    step3.style.display = 'none';
-    step4.style.display = 'none';
-  } else {
-    frameSelectionUI.style.display = 'none';
-    step2.style.display = 'block';
-    step3.style.display = 'block';
-    step4.style.display = 'block';
-  }
-
-  // Initialize pipeline mode button styles
-  updatePipelineModeButtonStyles();
+  frameSelectionUI.style.display = 'none';
+  step2.style.display = 'block';
+  step3.style.display = 'block';
+  step4.style.display = 'block';
 
   // Poll for updates every 5 seconds
   setInterval(() => {
@@ -98,11 +87,6 @@ function setupEventListeners() {
   if (btnClearData) {
     btnClearData.addEventListener('click', clearAllData);
   }
-
-  // Pipeline mode toggle
-  document.querySelectorAll('input[name="pipeline-mode"]').forEach(radio => {
-    radio.addEventListener('change', handlePipelineModeChange);
-  });
 
   // Frame selection UI
   const frameSlider = document.getElementById('frame-slider');
@@ -547,92 +531,7 @@ let frameSelectionState = {
   viewMode: 'all', // 'all' or 'selected'
 };
 
-/**
- * Handle pipeline mode change
- */
-function handlePipelineModeChange(event) {
-  const mode = event.target.value;
-  const frameSelectionUI = document.getElementById('frame-selection-ui');
-  const step2 = document.getElementById('step-2');
-  const step3 = document.getElementById('step-3');
-  const step4 = document.getElementById('step-4');
-
-  console.log(`[Pipeline Mode] Changed to: ${mode}`);
-
-  if (!frameSelectionUI || !step2 || !step3 || !step4) {
-    console.error('[Pipeline Mode] Missing UI elements');
-    return;
-  }
-
-  if (mode === 'frame_selection') {
-    // Show frame selection UI container, hide hold detection steps
-    // But only show content if frames are loaded
-    if (frameSelectionState.frames.length > 0) {
-      frameSelectionUI.style.display = 'block';
-    } else {
-      // Show container but hide the frame viewer content
-      frameSelectionUI.style.display = 'none';
-    }
-    step2.style.display = 'none';
-    step3.style.display = 'none';
-    step4.style.display = 'none';
-
-    // Update Step 1 title
-    document.getElementById('step-1-title').textContent = 'Select Key Frames';
-    document.getElementById('step-1-content').textContent = 'Upload a climbing video and manually select key frames for model training.';
-
-    console.log('[Pipeline Mode] Showing frame selection UI');
-  } else {
-    // Hide frame selection UI, show hold detection steps
-    frameSelectionUI.style.display = 'none';
-    step2.style.display = 'block';
-    step3.style.display = 'block';
-    step4.style.display = 'block';
-
-    // Update Step 1 title
-    document.getElementById('step-1-title').textContent = 'Extract Frames';
-    document.getElementById('step-1-content').textContent = 'Upload a climbing video and extract frames for hold detection labeling.';
-
-    console.log('[Pipeline Mode] Showing hold detection steps');
-  }
-
-  // Update button styles
-  updatePipelineModeButtonStyles();
-}
-
-/**
- * Update pipeline mode button styles to show selection
- */
-function updatePipelineModeButtonStyles() {
-  const modeHoldDetection = document.getElementById('mode-hold-detection');
-  const modeFrameSelection = document.getElementById('mode-frame-selection');
-  const labelHoldDetection = document.querySelector('label[for="mode-hold-detection"]');
-  const labelFrameSelection = document.querySelector('label[for="mode-frame-selection"]');
-
-  if (modeHoldDetection.checked) {
-    // Hold Detection selected
-    labelHoldDetection.style.background = '#0066cc';
-    labelHoldDetection.style.borderColor = '#0066cc';
-    labelHoldDetection.style.color = 'white';
-    labelHoldDetection.style.boxShadow = '0 0 10px rgba(0, 102, 204, 0.5)';
-
-    labelFrameSelection.style.background = '#333';
-    labelFrameSelection.style.borderColor = '#555';
-    labelFrameSelection.style.color = '#aaa';
-    labelFrameSelection.style.boxShadow = 'none';
-  } else {
-    // Frame Selection selected
-    labelFrameSelection.style.background = '#ff9900';
-    labelFrameSelection.style.borderColor = '#ff9900';
-    labelFrameSelection.style.color = 'white';
-    labelFrameSelection.style.boxShadow = '0 0 10px rgba(255, 153, 0, 0.5)';
-
-    labelHoldDetection.style.background = '#333';
-    labelHoldDetection.style.borderColor = '#555';
-    labelHoldDetection.style.color = '#aaa';
-    labelHoldDetection.style.boxShadow = 'none';
-  }
-}
+// Pipeline mode removed: unified flow now handles hold labeling then keyframe selection
 
 
 /**
