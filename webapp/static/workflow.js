@@ -128,12 +128,12 @@ async function extractFrames() {
       const pathParts = data.frame_directory.split('/');
       const uploadId = pathParts[pathParts.length - 2];
       const videoName = pathParts[pathParts.length - 1];
-      
+
       // Store for later use
       currentUploadId = uploadId;
       currentVideoName = videoName;
       currentFrameDir = data.frame_directory;
-      
+
       // Show hold labeling UI
       showHoldLabelingUI(uploadId, videoName, data.frame_count);
       setStepCompleted('step-1');
@@ -1119,18 +1119,18 @@ function showHoldLabelingUI(uploadId, videoName, frameCount) {
   // Get hold color and difficulty from selectors
   holdColor = document.getElementById('hold-color').value;
   routeDifficulty = document.getElementById('route-difficulty').value;
-  
+
   // Display metadata
-  document.getElementById('display-hold-color').textContent = 
+  document.getElementById('display-hold-color').textContent =
     holdColor.charAt(0).toUpperCase() + holdColor.slice(1);
-  document.getElementById('display-route-difficulty').textContent = 
+  document.getElementById('display-route-difficulty').textContent =
     routeDifficulty.charAt(0).toUpperCase() + routeDifficulty.slice(1);
   document.getElementById('total-frames-for-labeling').textContent = frameCount;
-  
+
   // Show the hold labeling UI
   const holdLabelingUI = document.getElementById('hold-labeling-ui');
   holdLabelingUI.style.display = 'block';
-  
+
   // Load first frame for labeling
   loadFirstFrameForLabeling(uploadId, videoName);
 }
@@ -1167,7 +1167,7 @@ function generateSessionName() {
   const day = String(now.getDate()).padStart(2, '0');
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
-  
+
   return `${year}-${month}-${day}_${hours}${minutes}`;
 }
 
