@@ -346,6 +346,11 @@ tr:hover td {
   border-radius: 8px;
   padding: 24px;
   transition: border-color 0.2s ease;
+  margin-bottom: 20px;
+}
+
+.step-card:last-child {
+  margin-bottom: 0;
 }
 
 .step-card.active {
@@ -1010,6 +1015,7 @@ tr:hover td {
   overflow-y: auto;
   white-space: pre-wrap;
 }
+
 /* Form Group & Grid for Workflow */
 .form-group {
   margin-bottom: 20px;
