@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
     step4.style.display = 'block';
   }
 
+  // Initialize pipeline mode button styles
+  updatePipelineModeButtonStyles();
+
   // Poll for updates every 5 seconds
   setInterval(() => {
     loadSessions();
@@ -80,8 +83,6 @@ async function extractFrames() {
     showStatus('step-1', 'Please select a video file', 'error');
     return;
   }
-
-  const method = document.getElementById('sampling-method').value;
 
   showStatus('step-1', 'Uploading video and extracting frames...', 'info');
   setStepActive('step-1');
@@ -506,7 +507,45 @@ function handlePipelineModeChange(event) {
     step4.style.display = 'block';
     console.log('[Pipeline Mode] Showing hold detection steps');
   }
+
+  // Update button styles
+  updatePipelineModeButtonStyles();
 }
+
+/**
+ * Update pipeline mode button styles to show selection
+ */
+function updatePipelineModeButtonStyles() {
+  const modeHoldDetection = document.getElementById('mode-hold-detection');
+  const modeFrameSelection = document.getElementById('mode-frame-selection');
+  const labelHoldDetection = document.querySelector('label[for="mode-hold-detection"]');
+  const labelFrameSelection = document.querySelector('label[for="mode-frame-selection"]');
+
+  if (modeHoldDetection.checked) {
+    // Hold Detection selected
+    labelHoldDetection.style.background = '#0066cc';
+    labelHoldDetection.style.borderColor = '#0066cc';
+    labelHoldDetection.style.color = 'white';
+    labelHoldDetection.style.boxShadow = '0 0 10px rgba(0, 102, 204, 0.5)';
+
+    labelFrameSelection.style.background = '#333';
+    labelFrameSelection.style.borderColor = '#555';
+    labelFrameSelection.style.color = '#aaa';
+    labelFrameSelection.style.boxShadow = 'none';
+  } else {
+    // Frame Selection selected
+    labelFrameSelection.style.background = '#ff9900';
+    labelFrameSelection.style.borderColor = '#ff9900';
+    labelFrameSelection.style.color = 'white';
+    labelFrameSelection.style.boxShadow = '0 0 10px rgba(255, 153, 0, 0.5)';
+
+    labelHoldDetection.style.background = '#333';
+    labelHoldDetection.style.borderColor = '#555';
+    labelHoldDetection.style.color = '#aaa';
+    labelHoldDetection.style.boxShadow = 'none';
+  }
+}
+
 
 /**
  * Load frames for selection after extraction

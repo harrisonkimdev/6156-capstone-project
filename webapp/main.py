@@ -224,6 +224,40 @@ async def upload_video(video: UploadFile = File(...)) -> dict[str, object]:
     return payload
 
 
+async def run_frame_selector_inference(upload_id: str, video_name: str) -> None:
+    """Run frame selector model inference if model exists and save predictions to selected_frames/."""
+    import sys
+    SRC_DIR = ROOT_DIR / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
+    
+    try:
+        from pose_ai.service.frame_selector_service import predict_key_frames
+        
+        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        
+        # Check if model checkpoint exists
+        model_dir = workflow_dir / "frame_selector_output" / "checkpoints"
+        if not model_dir.exists():
+            LOGGER.info(f"No frame selector model found for {video_name}, skipping inference")
+            return
+        
+        LOGGER.info(f"Running frame selector inference for {video_name}")
+        
+        # Run prediction and save to selected_frames/
+        results = predict_key_frames(
+            workflow_dir=workflow_dir,
+            output_dir=workflow_dir / "frame_selector_output",
+        )
+        
+        LOGGER.info(f"Frame selector inference complete: {results}")
+        
+    except ImportError as e:
+        LOGGER.debug(f"Frame selector service not available: {e}")
+    except Exception as e:
+        LOGGER.warning(f"Frame selector inference failed: {e}", exc_info=True)
+
+
 @app.post("/api/workflow/extract-frames", response_class=JSONResponse)
 async def workflow_extract_frames(
     video: UploadFile = File(...),
@@ -276,6 +310,16 @@ async def workflow_extract_frames(
         
         print(f"[FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
         print(f"[FRAME EXTRACTION] Frame directory: {result.frame_directory}")
+        
+        # Run inference if model exists
+        try:
+            await run_frame_selector_inference(
+                upload_id=upload_id,
+                video_name=Path(video.filename).stem,
+            )
+        except Exception as e:
+            LOGGER.warning(f"Frame selector inference failed (model may not exist yet): {e}")
+            # Don't raise - inference is optional
         
         return {
             "status": "success",
