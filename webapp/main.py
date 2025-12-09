@@ -460,6 +460,47 @@ async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> di
     }
 
 
+@app.post("/api/workflow/train-frame-selector", response_class=JSONResponse)
+async def train_frame_selector(request: Request) -> dict[str, object]:
+    """Train frame selector model using manually selected frames."""
+    try:
+        data = await request.json()
+        upload_id = data.get("upload_id")
+        video_name = data.get("video_name")
+        
+        if not upload_id or not video_name:
+            raise HTTPException(status_code=400, detail="Missing upload_id or video_name")
+        
+        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        human_selected_dir = workflow_dir / "human_selected_frames"
+        
+        if not human_selected_dir.exists():
+            raise HTTPException(status_code=404, detail="No human_selected_frames directory found")
+        
+        # Count selected frames
+        selected_frames = list(human_selected_dir.glob("*.jpg"))
+        if len(selected_frames) == 0:
+            raise HTTPException(status_code=400, detail="No frames selected. Please select at least one frame.")
+        
+        LOGGER.info("Starting frame selector training with %d selected frames", len(selected_frames))
+        
+        # TODO: Implement actual training pipeline
+        # For now, return a placeholder response
+        return {
+            "status": "success",
+            "message": f"Training initiated with {len(selected_frames)} selected frames",
+            "selected_frame_count": len(selected_frames),
+            "accuracy": 0.0,  # Placeholder
+            "note": "Training pipeline not yet implemented"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception("Failed to train frame selector")
+        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
+
+
 @app.post("/api/system/clear", response_class=JSONResponse)
 async def clear_data() -> dict[str, object]:
     """Clear all uploads and workflow frames data."""

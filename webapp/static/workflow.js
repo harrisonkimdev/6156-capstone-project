@@ -779,7 +779,15 @@ async function trainFrameSelector() {
     }
 
     const data = await response.json();
-    showStatus('step-1', `Training complete! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`, 'success');
+    
+    if (data.note) {
+      // Training pipeline not yet implemented
+      showStatus('step-1', `${data.message} (${data.note})`, 'info');
+      alert(`✓ ${data.message}\n\nNote: ${data.note}`);
+    } else {
+      showStatus('step-1', `Training complete! Accuracy: ${(data.accuracy * 100).toFixed(1)}%`, 'success');
+      alert(`✓ Training complete!\nAccuracy: ${(data.accuracy * 100).toFixed(1)}%`);
+    }
 
   } catch (error) {
     console.error('Training failed:', error);
