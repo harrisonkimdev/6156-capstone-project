@@ -362,6 +362,13 @@ def extract_frames_with_motion(
         # Create empty human_selected_frames/ directory for manual selection
         human_selected_frames_dir = ensure_directory(frame_dir / "human_selected_frames")
         print(f"[SAMPLER] Created empty directory for manual frame selection: {human_selected_frames_dir}")
+        
+        # Detect holds from first frame and save hold_positions.json
+        try:
+            print(f"[SAMPLER] Detecting holds from first frame...")
+            _detect_and_save_holds(all_frames_dir, frame_dir)
+        except Exception as e:
+            print(f"[SAMPLER] Warning: Hold detection failed: {e}")
 
     # Step 6: Save selected frames (auto-selected by algorithm) to selected_frames/
     selected_frames_dir = ensure_directory(frame_dir / "selected_frames")
@@ -827,6 +834,38 @@ def extract_frames_with_contact_detection(
         saved_frames=len(saved_paths),
         frame_paths=saved_paths,
     )
+
+
+def _detect_and_save_holds(all_frames_dir: Path, output_dir: Path) -> None:
+    """Detect holds from first frame and save to hold_positions.json.
+    
+    Args:
+        all_frames_dir: Directory containing all_frames
+        output_dir: Directory to save hold_positions.json
+    """
+    # Get first frame
+    frame_files = sorted(all_frames_dir.glob('*.jpg'))
+    if not frame_files:
+        raise FileNotFoundError(f"No frames found in {all_frames_dir}")
+    
+    first_frame_path = frame_files[0]
+    
+    # TODO: Integrate with YOLO hold detection
+    # For now, create dummy hold positions
+    holds_data = {
+        'holds': [
+            {'id': 0, 'x': 0.3, 'y': 0.4, 'w': 0.05, 'h': 0.06},
+            {'id': 1, 'x': 0.5, 'y': 0.5, 'w': 0.04, 'h': 0.05},
+            {'id': 2, 'x': 0.7, 'y': 0.6, 'w': 0.06, 'h': 0.07},
+        ]
+    }
+    
+    # Save hold_positions.json
+    hold_positions_path = output_dir / 'hold_positions.json'
+    with open(hold_positions_path, 'w') as f:
+        json.dump(holds_data, f, indent=2)
+    
+    print(f"[SAMPLER] Saved {len(holds_data['holds'])} holds to {hold_positions_path}")
 
 
 __all__ = [

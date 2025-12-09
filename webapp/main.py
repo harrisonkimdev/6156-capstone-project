@@ -464,9 +464,18 @@ async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> di
 async def train_frame_selector(request: Request) -> dict[str, object]:
     """Train frame selector model using manually selected frames."""
     try:
+        import sys
+        SRC_DIR = ROOT_DIR / "src"
+        if str(SRC_DIR) not in sys.path:
+            sys.path.insert(0, str(SRC_DIR))
+        
+        from pose_ai.service.frame_selector_service import train_frame_selector_pipeline
+        from pose_ai.ml.frame_selector_trainer import TrainerConfig
+        
         data = await request.json()
         upload_id = data.get("upload_id")
         video_name = data.get("video_name")
+        fps = float(data.get("fps", 30.0))
         
         if not upload_id or not video_name:
             raise HTTPException(status_code=400, detail="Missing upload_id or video_name")
@@ -484,14 +493,30 @@ async def train_frame_selector(request: Request) -> dict[str, object]:
         
         LOGGER.info("Starting frame selector training with %d selected frames", len(selected_frames))
         
-        # TODO: Implement actual training pipeline
-        # For now, return a placeholder response
+        # Run training pipeline
+        output_dir = workflow_dir / "frame_selector_output"
+        config = TrainerConfig(
+            epochs=50,
+            batch_size=8,
+            patience=10,
+            pos_weight=10.0,
+            save_dir=output_dir / "checkpoints",
+            device='cpu',  # Use CPU for now
+        )
+        
+        results = train_frame_selector_pipeline(
+            workflow_dir=workflow_dir,
+            output_dir=output_dir,
+            fps=fps,
+            config=config,
+        )
+        
+        LOGGER.info("Frame selector training completed successfully")
+        
         return {
             "status": "success",
-            "message": f"Training initiated with {len(selected_frames)} selected frames",
-            "selected_frame_count": len(selected_frames),
-            "accuracy": 0.0,  # Placeholder
-            "note": "Training pipeline not yet implemented"
+            "message": f"Training completed with {len(selected_frames)} key frames",
+            "results": results,
         }
         
     except HTTPException:

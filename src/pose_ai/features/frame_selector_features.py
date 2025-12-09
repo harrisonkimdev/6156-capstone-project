@@ -1,7 +1,8 @@
 """Frame selector feature extraction module.
 
-Extracts features from video frames to train a frame selection model.
-Features include motion score, pose keypoint change, brightness, sharpness, and edge density.
+Extracts pose-based features from video frames:
+- Acceleration of limbs (hands, elbows, shoulders)
+- Distance from keypoints to holds
 """
 
 from __future__ import annotations
@@ -10,237 +11,319 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
-import cv2
 import numpy as np
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class FrameFeatures:
-    """Features extracted from a single frame."""
+class PoseBasedFrameFeatures:
+    """Pose-based features for a single frame."""
     
     frame_idx: int
-    motion_score: float
-    pose_keypoint_change: float
-    brightness: float
-    sharpness: float
-    edge_density: float
     timestamp: float
     filename: str
+    
+    # Acceleration features (6): left/right shoulder, elbow, wrist
+    left_shoulder_accel: float
+    right_shoulder_accel: float
+    left_elbow_accel: float
+    right_elbow_accel: float
+    left_wrist_accel: float
+    right_wrist_accel: float
+    
+    # Keypoint-to-hold distance features (8): 2 wrists × 4 holds
+    left_wrist_to_hold_0: float
+    left_wrist_to_hold_1: float
+    left_wrist_to_hold_2: float
+    left_wrist_to_hold_3: float
+    right_wrist_to_hold_0: float
+    right_wrist_to_hold_1: float
+    right_wrist_to_hold_2: float
+    right_wrist_to_hold_3: float
+    
+    def to_array(self) -> np.ndarray:
+        """Convert features to numpy array (14 dimensions)."""
+        return np.array([
+            self.left_shoulder_accel,
+            self.right_shoulder_accel,
+            self.left_elbow_accel,
+            self.right_elbow_accel,
+            self.left_wrist_accel,
+            self.right_wrist_accel,
+            self.left_wrist_to_hold_0,
+            self.left_wrist_to_hold_1,
+            self.left_wrist_to_hold_2,
+            self.left_wrist_to_hold_3,
+            self.right_wrist_to_hold_0,
+            self.right_wrist_to_hold_1,
+            self.right_wrist_to_hold_2,
+            self.right_wrist_to_hold_3,
+        ], dtype=np.float32)
 
 
-def compute_pose_keypoint_change(
-    pose1: Optional[np.ndarray],
-    pose2: Optional[np.ndarray]
-) -> float:
-    """Compute pose keypoint change between two frames.
+def extract_keypoint_positions(
+    pose_landmarks: Optional[Dict[str, Dict[str, float]]]
+) -> Dict[str, Tuple[float, float]]:
+    """Extract normalized (x, y) positions for key joints.
     
     Args:
-        pose1, pose2: (num_keypoints, 2) arrays of [x, y] normalized coordinates
-        
+        pose_landmarks: Dict mapping landmark name to {x, y, z, visibility}
+    
     Returns:
-        Average Euclidean distance between keypoints (0.0 if pose unavailable)
+        Dict mapping joint name to (x, y) normalized coordinates
     """
-    if pose1 is None or pose2 is None:
-        return 0.0
+    if not pose_landmarks:
+        return {}
     
-    if pose1.shape != pose2.shape:
-        return 0.0
+    positions = {}
+    for joint_name in ['left_shoulder', 'right_shoulder', 'left_elbow', 
+                       'right_elbow', 'left_wrist', 'right_wrist']:
+        if joint_name in pose_landmarks:
+            lm = pose_landmarks[joint_name]
+            positions[joint_name] = (lm.get('x', 0.0), lm.get('y', 0.0))
     
-    # Compute Euclidean distance for each keypoint
-    distances = np.linalg.norm(pose2 - pose1, axis=1)
-    return float(np.mean(distances))
+    return positions
 
 
-def compute_brightness(frame: np.ndarray) -> float:
-    """Compute frame brightness (average pixel intensity).
+def calculate_velocity(
+    pos_prev: Dict[str, Tuple[float, float]],
+    pos_curr: Dict[str, Tuple[float, float]],
+    fps: float
+) -> Dict[str, Tuple[float, float]]:
+    """Calculate velocity (position change per second) for each joint.
     
     Args:
-        frame: BGR image
-        
+        pos_prev: Previous frame joint positions
+        pos_curr: Current frame joint positions
+        fps: Frames per second
+    
     Returns:
-        Average brightness in range [0, 255]
+        Dict mapping joint name to (vx, vy) velocity
     """
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    return float(np.mean(gray))
+    velocity = {}
+    dt = 1.0 / fps
+    
+    for joint_name in pos_curr:
+        if joint_name in pos_prev:
+            x_prev, y_prev = pos_prev[joint_name]
+            x_curr, y_curr = pos_curr[joint_name]
+            vx = (x_curr - x_prev) / dt
+            vy = (y_curr - y_prev) / dt
+            velocity[joint_name] = (vx, vy)
+        else:
+            velocity[joint_name] = (0.0, 0.0)
+    
+    return velocity
 
 
-def compute_sharpness(frame: np.ndarray) -> float:
-    """Compute frame sharpness using Laplacian variance.
+def calculate_acceleration(
+    vel_prev: Dict[str, Tuple[float, float]],
+    vel_curr: Dict[str, Tuple[float, float]],
+    fps: float
+) -> Dict[str, float]:
+    """Calculate acceleration magnitude (velocity change per second).
     
     Args:
-        frame: BGR image
-        
+        vel_prev: Previous frame velocities
+        vel_curr: Current frame velocities
+        fps: Frames per second
+    
     Returns:
-        Laplacian variance (higher = sharper)
+        Dict mapping joint name to acceleration magnitude
     """
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-    return float(laplacian.var())
+    acceleration = {}
+    dt = 1.0 / fps
+    
+    for joint_name in vel_curr:
+        if joint_name in vel_prev:
+            vx_prev, vy_prev = vel_prev[joint_name]
+            vx_curr, vy_curr = vel_curr[joint_name]
+            ax = (vx_curr - vx_prev) / dt
+            ay = (vy_curr - vy_prev) / dt
+            # Acceleration magnitude
+            accel_mag = np.sqrt(ax**2 + ay**2)
+            acceleration[joint_name] = accel_mag
+        else:
+            acceleration[joint_name] = 0.0
+    
+    return acceleration
 
 
-def compute_edge_density(frame: np.ndarray) -> float:
-    """Compute edge density using Canny edge detection.
+def calculate_keypoint_to_hold_distances(
+    keypoint_pos: Tuple[float, float],
+    hold_positions: List[Tuple[float, float]]
+) -> List[float]:
+    """Calculate Euclidean distances from a keypoint to all holds.
     
     Args:
-        frame: BGR image
-        
+        keypoint_pos: (x, y) normalized position of keypoint
+        hold_positions: List of (x, y) normalized hold positions
+    
     Returns:
-        Ratio of edge pixels to total pixels [0, 1]
+        List of distances (length 4, padded with 0.0 if fewer holds)
     """
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, threshold1=50, threshold2=150)
-    edge_ratio = np.sum(edges > 0) / edges.size
-    return float(edge_ratio)
+    distances = []
+    for hold_pos in hold_positions[:4]:  # Max 4 holds
+        dx = keypoint_pos[0] - hold_pos[0]
+        dy = keypoint_pos[1] - hold_pos[1]
+        distance = np.sqrt(dx**2 + dy**2)
+        distances.append(distance)
+    
+    # Pad with 0.0 if fewer than 4 holds
+    while len(distances) < 4:
+        distances.append(0.0)
+    
+    return distances
 
 
-def extract_frame_features(
-    frame: np.ndarray,
-    frame_idx: int,
-    prev_frame: Optional[np.ndarray],
-    pose_keypoints: Optional[np.ndarray],
-    prev_pose_keypoints: Optional[np.ndarray],
-    motion_score: float,
-    timestamp: float,
-    filename: str,
-) -> FrameFeatures:
-    """Extract all features from a single frame.
+def extract_pose_based_features_from_sequence(
+    pose_sequence: List[Dict[str, any]],
+    hold_positions: List[Tuple[float, float]],
+    fps: float = 30.0
+) -> List[PoseBasedFrameFeatures]:
+    """Extract pose-based features from a sequence of pose estimations.
     
     Args:
-        frame: Current frame (BGR)
-        frame_idx: Frame index
-        prev_frame: Previous frame for computing changes
-        pose_keypoints: Current frame pose keypoints (num_keypoints, 2)
-        prev_pose_keypoints: Previous frame pose keypoints
-        motion_score: Pre-computed motion score from manifest.json
-        timestamp: Frame timestamp in seconds
-        filename: Frame filename
-        
+        pose_sequence: List of dicts with 'frame_idx', 'timestamp', 'filename', 'landmarks'
+        hold_positions: List of (x, y) normalized hold center positions
+        fps: Video frame rate
+    
     Returns:
-        FrameFeatures object with all extracted features
+        List of PoseBasedFrameFeatures for each frame
     """
-    # Compute pose change
-    pose_change = compute_pose_keypoint_change(prev_pose_keypoints, pose_keypoints)
-    
-    # Compute frame quality features
-    brightness = compute_brightness(frame)
-    sharpness = compute_sharpness(frame)
-    edge_density = compute_edge_density(frame)
-    
-    return FrameFeatures(
-        frame_idx=frame_idx,
-        motion_score=motion_score,
-        pose_keypoint_change=pose_change,
-        brightness=brightness,
-        sharpness=sharpness,
-        edge_density=edge_density,
-        timestamp=timestamp,
-        filename=filename,
-    )
-
-
-def extract_all_frame_features(
-    all_frames_dir: Path,
-    manifest_path: Path,
-) -> List[FrameFeatures]:
-    """Extract features from all frames in the all_frames/ directory.
-    
-    Args:
-        all_frames_dir: Path to all_frames/ directory
-        manifest_path: Path to manifest.json (contains motion scores)
-        
-    Returns:
-        List of FrameFeatures for each frame
-    """
-    LOGGER.info("Extracting features from frames in: %s", all_frames_dir)
-    
-    # Load manifest for motion scores
-    manifest = {}
-    if manifest_path.exists():
-        with open(manifest_path, 'r') as f:
-            manifest = json.load(f)
-    
-    # Get motion scores by frame index
-    motion_scores = {}
-    if 'frames' in manifest:
-        for frame_info in manifest['frames']:
-            motion_scores[frame_info['frame_index']] = frame_info.get('motion_score', 0.0)
-    
-    # Get all frame files sorted by name
-    frame_files = sorted(all_frames_dir.glob("*_frame_*.jpg"))
-    
-    if not frame_files:
-        LOGGER.warning("No frames found in: %s", all_frames_dir)
-        return []
-    
     features_list = []
-    prev_frame = None
-    prev_pose = None  # TODO: Add pose estimation support
     
-    for i, frame_path in enumerate(frame_files):
-        # Extract frame index from filename (e.g., IMG_3709_frame_000005.jpg -> 5)
-        try:
-            frame_idx_str = frame_path.stem.split('_frame_')[1]
-            frame_idx = int(frame_idx_str)
-        except (IndexError, ValueError):
-            LOGGER.warning("Could not parse frame index from: %s", frame_path.name)
-            frame_idx = i
+    # Track positions and velocities across frames
+    positions_history = []
+    velocities_history = []
+    
+    for frame_idx, pose_data in enumerate(pose_sequence):
+        # Extract current frame info
+        landmarks = pose_data.get('landmarks', {})
+        timestamp = pose_data.get('timestamp', frame_idx / fps)
+        filename = pose_data.get('filename', f'frame_{frame_idx:06d}.jpg')
         
-        # Load frame
-        frame = cv2.imread(str(frame_path))
-        if frame is None:
-            LOGGER.warning("Failed to load frame: %s", frame_path)
-            continue
+        # Extract joint positions
+        positions = extract_keypoint_positions(landmarks)
+        positions_history.append(positions)
         
-        # Get motion score from manifest (default to 0.0 if not found)
-        motion_score = motion_scores.get(frame_idx, 0.0)
+        # Calculate velocity (need previous frame)
+        if len(positions_history) >= 2:
+            velocity = calculate_velocity(positions_history[-2], positions_history[-1], fps)
+        else:
+            velocity = {k: (0.0, 0.0) for k in positions.keys()}
+        velocities_history.append(velocity)
         
-        # Extract timestamp (use frame index * default FPS if not in manifest)
-        timestamp = frame_idx / 30.0  # Default 30 FPS
+        # Calculate acceleration (need previous velocity)
+        if len(velocities_history) >= 2:
+            acceleration = calculate_acceleration(velocities_history[-2], velocities_history[-1], fps)
+        else:
+            acceleration = {k: 0.0 for k in velocity.keys()}
         
-        # Extract features
-        features = extract_frame_features(
-            frame=frame,
+        # Extract acceleration features
+        left_shoulder_accel = acceleration.get('left_shoulder', 0.0)
+        right_shoulder_accel = acceleration.get('right_shoulder', 0.0)
+        left_elbow_accel = acceleration.get('left_elbow', 0.0)
+        right_elbow_accel = acceleration.get('right_elbow', 0.0)
+        left_wrist_accel = acceleration.get('left_wrist', 0.0)
+        right_wrist_accel = acceleration.get('right_wrist', 0.0)
+        
+        # Extract keypoint-to-hold distance features
+        left_wrist_pos = positions.get('left_wrist', (0.0, 0.0))
+        right_wrist_pos = positions.get('right_wrist', (0.0, 0.0))
+        
+        left_wrist_distances = calculate_keypoint_to_hold_distances(left_wrist_pos, hold_positions)
+        right_wrist_distances = calculate_keypoint_to_hold_distances(right_wrist_pos, hold_positions)
+        
+        # Create feature object
+        features = PoseBasedFrameFeatures(
             frame_idx=frame_idx,
-            prev_frame=prev_frame,
-            pose_keypoints=None,  # TODO: Add pose estimation
-            prev_pose_keypoints=prev_pose,
-            motion_score=motion_score,
             timestamp=timestamp,
-            filename=frame_path.name,
+            filename=filename,
+            left_shoulder_accel=left_shoulder_accel,
+            right_shoulder_accel=right_shoulder_accel,
+            left_elbow_accel=left_elbow_accel,
+            right_elbow_accel=right_elbow_accel,
+            left_wrist_accel=left_wrist_accel,
+            right_wrist_accel=right_wrist_accel,
+            left_wrist_to_hold_0=left_wrist_distances[0],
+            left_wrist_to_hold_1=left_wrist_distances[1],
+            left_wrist_to_hold_2=left_wrist_distances[2],
+            left_wrist_to_hold_3=left_wrist_distances[3],
+            right_wrist_to_hold_0=right_wrist_distances[0],
+            right_wrist_to_hold_1=right_wrist_distances[1],
+            right_wrist_to_hold_2=right_wrist_distances[2],
+            right_wrist_to_hold_3=right_wrist_distances[3],
         )
         
         features_list.append(features)
-        
-        # Update previous frame
-        prev_frame = frame
     
-    LOGGER.info("Extracted features from %d frames", len(features_list))
     return features_list
 
 
-def features_to_numpy(features_list: List[FrameFeatures]) -> np.ndarray:
-    """Convert list of FrameFeatures to numpy array.
+def features_to_numpy(features_list: List[PoseBasedFrameFeatures]) -> np.ndarray:
+    """Convert list of features to numpy array.
     
     Args:
-        features_list: List of FrameFeatures
-        
+        features_list: List of PoseBasedFrameFeatures
+    
     Returns:
-        (n_frames, 5) array of features:
-            [motion_score, pose_keypoint_change, brightness, sharpness, edge_density]
+        (n_frames, 14) numpy array
     """
-    feature_matrix = np.zeros((len(features_list), 5), dtype=np.float32)
+    return np.array([f.to_array() for f in features_list], dtype=np.float32)
+
+
+def normalize_features(
+    features: np.ndarray,
+    mean: Optional[np.ndarray] = None,
+    std: Optional[np.ndarray] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Normalize features using Z-score normalization.
     
-    for i, features in enumerate(features_list):
-        feature_matrix[i] = [
-            features.motion_score,
-            features.pose_keypoint_change,
-            features.brightness,
-            features.sharpness,
-            features.edge_density,
-        ]
+    Args:
+        features: (n_frames, n_features) array
+        mean: Optional pre-computed mean (if None, compute from features)
+        std: Optional pre-computed std (if None, compute from features)
     
-    return feature_matrix
+    Returns:
+        (normalized_features, mean, std)
+    """
+    if mean is None:
+        mean = np.mean(features, axis=0)
+    if std is None:
+        std = np.std(features, axis=0)
+        std = np.where(std < 1e-8, 1.0, std)  # Avoid division by zero
+    
+    normalized = (features - mean) / std
+    return normalized, mean, std
+
+
+def load_hold_positions(hold_positions_path: Path) -> List[Tuple[float, float]]:
+    """Load hold positions from JSON file.
+    
+    Args:
+        hold_positions_path: Path to hold_positions.json
+    
+    Returns:
+        List of (x, y) normalized hold center positions
+    """
+    if not hold_positions_path.exists():
+        LOGGER.warning(f"Hold positions file not found: {hold_positions_path}")
+        return []
+    
+    with open(hold_positions_path, 'r') as f:
+        data = json.load(f)
+    
+    holds = data.get('holds', [])
+    positions = []
+    
+    for hold in holds:
+        # Assume format: {"x": 0.5, "y": 0.3} or {"center_x": 0.5, "center_y": 0.3}
+        x = hold.get('x') or hold.get('center_x', 0.0)
+        y = hold.get('y') or hold.get('center_y', 0.0)
+        positions.append((x, y))
+    
+    return positions

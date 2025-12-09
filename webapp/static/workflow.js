@@ -779,7 +779,7 @@ async function trainFrameSelector() {
     }
 
     const data = await response.json();
-    
+
     if (data.note) {
       // Training pipeline not yet implemented
       showStatus('step-1', `${data.message} (${data.note})`, 'info');
