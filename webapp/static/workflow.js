@@ -47,7 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 function setupEventListeners() {
   document.getElementById('btn-extract-frames').addEventListener('click', extractFrames);
-  document.getElementById('btn-use-test-frames').addEventListener('click', useTestFrames);
   document.getElementById('btn-create-session').addEventListener('click', createSession);
   document.getElementById('btn-start-training').addEventListener('click', startTraining);
   document.getElementById('btn-upload-gcs').addEventListener('click', uploadToGCS);
@@ -123,37 +122,6 @@ async function extractFrames() {
 
   } catch (error) {
     console.error('Frame extraction failed:', error);
-    showStatus('step-1', `Error: ${error.message}`, 'error');
-  }
-}
-
-/**
- * Step 1B: Use pre-extracted test frames (Dev Mode)
- */
-async function useTestFrames() {
-  showStatus('step-1', '🧪 Loading test frames...', 'info');
-  setStepActive('step-1');
-
-  try {
-    const response = await fetch('/api/workflow/use-test-frames');
-
-    if (!response.ok) {
-      throw new Error(`Failed to load test frames: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    currentFrameDir = data.frame_directory;
-
-    // Update UI
-    document.getElementById('frame-dir').value = currentFrameDir;
-    document.getElementById('btn-create-session').disabled = false;
-
-    showStatus('step-1', `✅ ${data.message} (${data.frame_count} frames)`, 'success');
-    setStepCompleted('step-1');
-    setStepActive('step-2');
-
-  } catch (error) {
-    console.error('Test frames loading failed:', error);
     showStatus('step-1', `Error: ${error.message}`, 'error');
   }
 }
