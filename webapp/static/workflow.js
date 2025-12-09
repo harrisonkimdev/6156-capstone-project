@@ -1109,3 +1109,65 @@ function updateFrameCounterDisplay() {
     totalElem.textContent = frameSelectionState.frames.length;
   }
 }
+
+// ========== Hold Labeling UI ==========
+
+/**
+ * Show hold labeling UI after frame extraction in hold detection mode
+ */
+function showHoldLabelingUI(uploadId, videoName, frameCount) {
+  // Get hold color and difficulty from selectors
+  holdColor = document.getElementById('hold-color').value;
+  routeDifficulty = document.getElementById('route-difficulty').value;
+  
+  // Display metadata
+  document.getElementById('display-hold-color').textContent = 
+    holdColor.charAt(0).toUpperCase() + holdColor.slice(1);
+  document.getElementById('display-route-difficulty').textContent = 
+    routeDifficulty.charAt(0).toUpperCase() + routeDifficulty.slice(1);
+  document.getElementById('total-frames-for-labeling').textContent = frameCount;
+  
+  // Show the hold labeling UI
+  const holdLabelingUI = document.getElementById('hold-labeling-ui');
+  holdLabelingUI.style.display = 'block';
+  
+  // Load first frame for labeling
+  loadFirstFrameForLabeling(uploadId, videoName);
+}
+
+/**
+ * Load first frame for hold labeling
+ */
+async function loadFirstFrameForLabeling(uploadId, videoName) {
+  try {
+    const response = await fetch(`/api/workflow/frames/${uploadId}/${videoName}`);
+    if (!response.ok) {
+      throw new Error('Failed to load frames');
+    }
+
+    const data = await response.json();
+    if (data.frames && data.frames.length > 0) {
+      // Show first frame
+      const firstFrame = data.frames[0];
+      document.getElementById('hold-labeling-frame').src = firstFrame.path;
+    }
+  } catch (error) {
+    console.error('Failed to load frame for labeling:', error);
+    showStatus('step-2', `Error loading frames: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Auto-generate session name from current date/time
+ */
+function generateSessionName() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}_${hours}${minutes}`;
+}
+
