@@ -1,10 +1,10 @@
 :root {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #212121;
-    background-color: #f5f5f5;
+    color: #e5e7eb;
+    background-color: #0f1116;
     --primary: #f97316; /* orange-500 */
     --primary-hover: #ea580c; /* orange-600 */
-    --primary-weak: rgba(249, 115, 22, 0.1);
+    --primary-weak: rgba(249, 115, 22, 0.12);
 }
 
 /* Top navigation */
@@ -12,12 +12,12 @@
     position: sticky;
     top: 0;
     z-index: 10;
-    background: #fff;
-    border-bottom: 1px solid #eee;
+    background: #111827;
+    border-bottom: 1px solid #1f2937;
 }
 
 .topnav .inner {
-    max-width: 960px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 10px 16px;
     display: flex;
@@ -48,13 +48,13 @@
 
 .topnav nav a {
     text-decoration: none;
-    color: #374151;
+    color: #cbd5e1;
     padding: 6px 10px;
     border-radius: 8px;
 }
 
 .topnav nav a:hover {
-    background: var(--primary-weak);
+    background: rgba(255,255,255,0.08);
 }
 
 .topnav nav a.active {
@@ -64,10 +64,12 @@
 
 body {
     margin: 0;
+    background: #0f1116;
+    color: #e5e7eb;
 }
 
 .container {
-    max-width: 960px;
+    max-width: 1200px;
     margin: 24px auto;
     padding: 0 16px 48px;
     display: grid;
@@ -75,10 +77,11 @@ body {
 }
 
 .card {
-    background: #ffffff;
+    background: #111827;
     border-radius: 12px;
     padding: 24px;
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+    border: 1px solid #1f2937;
 }
 
 .card-header {
@@ -97,11 +100,12 @@ body {
 .title {
     margin: 0;
     font-size: 28px;
+    color: #f3f4f6;
 }
 
 .subtitle {
     margin-top: 8px;
-    color: #616161;
+    color: #9ca3af;
 }
 
 .form {
@@ -129,11 +133,12 @@ body {
 
 .form-row label {
     font-weight: 600;
+    color: #e5e7eb;
 }
 
 .form-row .hint {
     margin: 0;
-    color: #757575;
+    color: #9ca3af;
     font-size: 13px;
 }
 
