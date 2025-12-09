@@ -290,6 +290,30 @@
           <label>Video File</label>
           <input type="file" id="video-file" accept="video/*">
         </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+          <div class="form-group">
+            <label>Hold Color</label>
+            <select id="hold-color">
+              <option value="red">🔴 Red</option>
+              <option value="blue">🔵 Blue</option>
+              <option value="green">🟢 Green</option>
+              <option value="yellow">🟡 Yellow</option>
+              <option value="purple">🟣 Purple</option>
+              <option value="black">⚫ Black</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Route Difficulty</label>
+            <select id="route-difficulty">
+              <option value="beginner">Beginner (V0-V2)</option>
+              <option value="intermediate">Intermediate (V3-V5)</option>
+              <option value="advanced">Advanced (V6-V8)</option>
+              <option value="elite">Elite (V9+)</option>
+            </select>
+          </div>
+        </div>
+        
         <div class="step-actions">
           <button id="btn-extract-frames">Extract Frames</button>
         </div>
@@ -421,18 +445,46 @@
           <div class="step-title">Label Holds (SAM)</div>
         </div>
         <div class="step-content">
-          Create a labeling session and annotate holds using SAM segmentation.
+          Annotate holds on extracted frames using SAM segmentation.
         </div>
-        <div class="form-group">
-          <label>Session Name</label>
-          <input type="text" id="session-name" placeholder="e.g., Training Set 1">
-        </div>
-        <div class="form-group">
-          <label>Frame Directory</label>
-          <input type="text" id="frame-dir" placeholder="data/frames/video_name" readonly>
-        </div>
-        <div class="step-actions">
-          <button id="btn-create-session" disabled>Create Session</button>
+        <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
+          <div style="border-top: 1px solid #333; padding-top: 20px;">
+            <p style="color: #aaa; margin-bottom: 15px;">
+              Hold color: <strong id="display-hold-color" style="color: #0066cc;">Red</strong> | 
+              Difficulty: <strong id="display-route-difficulty" style="color: #00cc66;">Beginner</strong>
+            </p>
+            <div style="background: #2a2a2a; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+              <p style="color: #aaa; margin-bottom: 10px;">Labeling frame 1 of <span id="total-frames-for-labeling">0</span></p>
+              <div style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;">
+                <img id="hold-labeling-frame" src="" style="width: 100%; height: 100%; object-fit: contain;">
+              </div>
+              <p style="color: #aaa; font-size: 12px; margin-bottom: 15px;">
+                Click the button below to open SAM labeling interface, then save labels.
+              </p>
+              <div style="display: flex; gap: 10px;">
+                <button id="btn-open-sam-labeler" style="flex: 1; padding: 12px; background: #ff6600; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  🎯 Open SAM Labeler
+                </button>
+                <button id="btn-skip-frame" style="flex: 1; padding: 12px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  ⏭️ Skip Frame
+                </button>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button id="btn-save-holds-to-pool"
+                style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                💾 Save Holds to Pool
+              </button>
+              <button id="btn-train-yolo"
+                style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                🚀 Train YOLO (All Pool)
+              </button>
+            </div>
+            <div id="holds-pool-info"
+              style="margin-top: 10px; padding: 10px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa;">
+              <strong>Holds Pool:</strong> <span id="pool-holds-count">0</span> labeled sets
+            </div>
+          </div>
         </div>
         <div id="status-step-2" class="step-status" style="display: none;"></div>
       </div>
@@ -441,21 +493,13 @@
       <div id="step-3" class="step-card">
         <div class="step-header">
           <div class="step-number">3</div>
-          <div class="step-title">Train YOLO Model</div>
+          <div class="step-title">Key Frame Selection (Optional)</div>
         </div>
         <div class="step-content">
-          Export labeled data and train YOLO model for hold detection.
+          Learn to automatically select key frames from climbing videos.
         </div>
-        <div class="form-group">
-          <label>Epochs</label>
-          <input type="number" id="train-epochs" value="100" min="10" max="500">
-        </div>
-        <div class="form-group">
-          <label>Batch Size</label>
-          <input type="number" id="train-batch" value="16" min="1" max="64">
-        </div>
-        <div class="step-actions">
-          <button id="btn-start-training" disabled>Start Training</button>
+        <div style="padding: 15px; background: #2a2a2a; border-radius: 4px; color: #aaa;">
+          <p>Frame selection learning is available during the frame extraction step (Step 1 - Frame Selection mode).</p>
         </div>
         <div id="status-step-3" class="step-status" style="display: none;"></div>
       </div>
@@ -467,7 +511,7 @@
           <div class="step-title">Upload to GCS</div>
         </div>
         <div class="step-content">
-          Upload the trained model to Google Cloud Storage for deployment.
+          Upload the trained YOLO model to Google Cloud Storage for deployment.
         </div>
         <div class="step-actions">
           <button id="btn-upload-gcs" disabled>Upload Model</button>

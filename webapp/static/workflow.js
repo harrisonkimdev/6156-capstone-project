@@ -9,6 +9,10 @@ let currentFrameDir = null;
 let currentSessionId = null;
 let currentTrainingJobId = null;
 let frameAspectRatio = null; // 'vertical' or 'horizontal'
+let currentUploadId = null;
+let currentVideoName = null;
+let holdColor = 'red';
+let routeDifficulty = 'beginner';
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -119,6 +123,21 @@ async function extractFrames() {
       const uploadId = pathParts[pathParts.length - 2];
       const videoName = pathParts[pathParts.length - 1];
       await loadFramesForSelection(uploadId, videoName);
+    } else {
+      // Hold detection mode: show SAM labeling UI
+      const pathParts = data.frame_directory.split('/');
+      const uploadId = pathParts[pathParts.length - 2];
+      const videoName = pathParts[pathParts.length - 1];
+      
+      // Store for later use
+      currentUploadId = uploadId;
+      currentVideoName = videoName;
+      currentFrameDir = data.frame_directory;
+      
+      // Show hold labeling UI
+      showHoldLabelingUI(uploadId, videoName, data.frame_count);
+      setStepCompleted('step-1');
+      setStepActive('step-2');
     }
 
   } catch (error) {
@@ -498,11 +517,11 @@ function handlePipelineModeChange(event) {
     step2.style.display = 'none';
     step3.style.display = 'none';
     step4.style.display = 'none';
-    
+
     // Update Step 1 title
     document.getElementById('step-1-title').textContent = 'Select Key Frames';
     document.getElementById('step-1-content').textContent = 'Upload a climbing video and manually select key frames for model training.';
-    
+
     console.log('[Pipeline Mode] Showing frame selection UI');
   } else {
     // Hide frame selection UI, show hold detection steps
@@ -510,11 +529,11 @@ function handlePipelineModeChange(event) {
     step2.style.display = 'block';
     step3.style.display = 'block';
     step4.style.display = 'block';
-    
+
     // Update Step 1 title
     document.getElementById('step-1-title').textContent = 'Extract Frames';
     document.getElementById('step-1-content').textContent = 'Upload a climbing video and extract frames for hold detection labeling.';
-    
+
     console.log('[Pipeline Mode] Showing hold detection steps');
   }
 
