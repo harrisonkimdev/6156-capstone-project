@@ -569,7 +569,7 @@ function updateFramePreview() {
 
   // Update previously selected frames display
   updatePreviouslySelectedFrames();
-  
+
   // Determine aspect ratio from first frame
   if (frameAspectRatio === null) {
     detectAspectRatio(frame);
@@ -595,9 +595,9 @@ function detectAspectRatio(frame) {
 function updateLayoutForAspectRatio() {
   const verticalLayout = document.getElementById('vertical-layout');
   const horizontalLayout = document.getElementById('horizontal-layout');
-  
+
   if (!verticalLayout || !horizontalLayout) return;
-  
+
   if (frameAspectRatio === 'vertical') {
     verticalLayout.style.display = 'grid';
     horizontalLayout.style.display = 'none';
@@ -612,13 +612,13 @@ function updateLayoutForAspectRatio() {
  */
 function updatePreviouslySelectedFrames() {
   const currentIndex = frameSelectionState.currentIndex;
-  
+
   // Get the most recent previously selected frame
   const previousSelectedFrames = frameSelectionState.frames
     .slice(0, currentIndex)
     .filter((f) => frameSelectionState.selectedFrames.has(f.filename));
-  
-  const lastSelectedFrame = previousSelectedFrames.length > 0 
+
+  const lastSelectedFrame = previousSelectedFrames.length > 0
     ? previousSelectedFrames[previousSelectedFrames.length - 1]
     : null;
 
@@ -714,6 +714,12 @@ async function selectCurrentFrame() {
 
     frameSelectionState.selectedFrames.add(frame.filename);
     document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    
+    // Move to next frame automatically after selection
+    if (frameSelectionState.currentIndex < frameSelectionState.frames.length - 1) {
+      frameSelectionState.currentIndex++;
+    }
+    
     updateFramePreview();
 
   } catch (error) {
