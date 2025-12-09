@@ -13,6 +13,7 @@ let currentUploadId = null;
 let currentVideoName = null;
 let holdColor = 'red';
 let routeDifficulty = 'beginner';
+let firstFrameImageUrl = null; // Store first frame for both preview and hold detection
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -1199,7 +1200,17 @@ function handleVideoFileSelection(event) {
     // Convert to blob and create preview URL
     canvas.toBlob(blob => {
       const previewUrl = URL.createObjectURL(blob);
+      firstFrameImageUrl = previewUrl; // Store for hold detection
       document.getElementById('first-frame-preview').src = previewUrl;
+      
+      // Also display in hold detection UI
+      document.getElementById('hold-labeling-frame').src = previewUrl;
+      
+      // Show hold labeling UI
+      const holdLabelingUI = document.getElementById('hold-labeling-ui');
+      if (holdLabelingUI) {
+        holdLabelingUI.style.display = 'block';
+      }
     }, 'image/jpeg', 0.8);
 
     video.pause();
