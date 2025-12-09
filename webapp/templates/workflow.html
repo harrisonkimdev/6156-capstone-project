@@ -289,6 +289,27 @@
         <div class="form-group">
           <label>Video File</label>
           <input type="file" id="video-file" accept="video/*">
+          <!-- Video preview section -->
+          <div id="video-preview-container" style="display: none; margin-top: 15px; padding: 15px; background: #2a2a2a; border-radius: 4px;">
+            <div style="font-size: 12px; color: #aaa; margin-bottom: 10px;">
+              <strong style="color: #fff;">📹 Selected:</strong> <span id="preview-filename" style="color: #0066cc;"></span>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
+              <div style="background: #1a1a1a; border-radius: 4px; overflow: hidden; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
+                <img id="first-frame-preview" src="" alt="First frame" style="width: 100%; height: 100%; object-fit: contain;">
+              </div>
+              <div style="display: flex; flex-direction: column; justify-content: center; gap: 10px; color: #aaa; font-size: 13px;">
+                <div>
+                  <strong style="color: #fff; display: block; margin-bottom: 3px;">Hold Color:</strong>
+                  <span id="preview-hold-color" style="color: #0066cc; font-weight: bold;">Red</span>
+                </div>
+                <div>
+                  <strong style="color: #fff; display: block; margin-bottom: 3px;">Route Difficulty:</strong>
+                  <span id="preview-route-difficulty" style="color: #0066cc; font-weight: bold;">Pink (Easier)</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -306,7 +327,7 @@
           <div class="form-group">
             <label>Route Difficulty</label>
             <select id="route-difficulty">
-              <option value="pink">💗 Pink (Easier)</option>
+              <option value="pink">🟩 Pink (Easier)</option>
               <option value="black">⬛ Black</option>
               <option value="yellow">🟨 Yellow</option>
               <option value="orange">🟧 Orange</option>

@@ -71,6 +71,13 @@ function setupEventListeners() {
   document.getElementById('btn-view-all')?.addEventListener('click', () => setViewMode('all'));
   document.getElementById('btn-view-selected')?.addEventListener('click', () => setViewMode('selected'));
 
+  // Video file selection - show first frame preview
+  document.getElementById('video-file').addEventListener('change', handleVideoFileSelection);
+
+  // Hold color and route difficulty dropdown changes
+  document.getElementById('hold-color').addEventListener('change', updateVideoPreview);
+  document.getElementById('route-difficulty').addEventListener('change', updateVideoPreview);
+
   // Keyboard shortcuts for frame selection
   document.addEventListener('keydown', handleKeyboardShortcuts);
 
@@ -1155,6 +1162,74 @@ async function loadFirstFrameForLabeling(uploadId, videoName) {
     console.error('Failed to load frame for labeling:', error);
     showStatus('step-2', `Error loading frames: ${error.message}`, 'error');
   }
+}
+
+/**
+ * Handle video file selection - extract first frame for preview
+ */
+function handleVideoFileSelection(event) {
+  const file = event.target.files[0];
+  if (!file) {
+    document.getElementById('video-preview-container').style.display = 'none';
+    return;
+  }
+
+  // Show loading state
+  const container = document.getElementById('video-preview-container');
+  container.style.display = 'block';
+  document.getElementById('preview-filename').textContent = file.name;
+  document.getElementById('first-frame-preview').src = '';
+
+  // Extract first frame using video element and canvas
+  const video = document.createElement('video');
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  video.onloadedmetadata = () => {
+    // Seek to first frame (very small offset to ensure it's loaded)
+    video.currentTime = 0.1;
+  };
+
+  video.onseeked = () => {
+    // Draw frame to canvas
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    // Convert to blob and create preview URL
+    canvas.toBlob(blob => {
+      const previewUrl = URL.createObjectURL(blob);
+      document.getElementById('first-frame-preview').src = previewUrl;
+    }, 'image/jpeg', 0.8);
+
+    video.pause();
+  };
+
+  // Load video file
+  const fileUrl = URL.createObjectURL(file);
+  video.src = fileUrl;
+  video.load();
+
+  // Update metadata display
+  updateVideoPreview();
+}
+
+/**
+ * Update video preview metadata (hold color and route difficulty)
+ */
+function updateVideoPreview() {
+  const holdColorSelect = document.getElementById('hold-color');
+  const routeDifficultySelect = document.getElementById('route-difficulty');
+
+  const holdColorLabel = holdColorSelect.options[holdColorSelect.selectedIndex].text;
+  const routeDiffLabel = routeDifficultySelect.options[routeDifficultySelect.selectedIndex].text;
+
+  document.getElementById('preview-hold-color').textContent = holdColorLabel;
+  document.getElementById('preview-route-difficulty').textContent = routeDiffLabel;
+
+  // Also update state variables
+  holdColor = holdColorSelect.value;
+  routeDifficulty = routeDifficultySelect.value;
 }
 
 /**
