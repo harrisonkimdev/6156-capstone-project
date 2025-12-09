@@ -25,6 +25,7 @@ from .labeling_sessions import LabelingManager, SessionStatus
 from .yolo_training_jobs import YoloTrainManager, execute_yolo_training
 from pose_ai.recommendation.efficiency import suggest_next_actions
 from pose_ai.service.sam_service import SamService
+from pose_ai.segmentation.sam3d_service import Sam3DService
 
 app = FastAPI(title="BetaMove Pipeline UI")
 
@@ -42,6 +43,7 @@ labeling_manager = LabelingManager(LABELING_SESSIONS_DIR)
 yolo_train_manager = YoloTrainManager()
 LOGGER = logging.getLogger(__name__)
 GCS_MANAGER = get_gcs_manager()
+MODELS_3D_DIR = ROOT_DIR / "data" / "3d_models"
 
 
 def _ensure_directory(path: Path) -> Path:
@@ -1268,6 +1270,199 @@ async def workflow_page_redirect(request: Request):
     """Redirect old workflow route to new detection route for backward compatibility."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/detection", status_code=301)
+
+
+# ============================================================================
+# 3D Conversion Endpoints
+# ============================================================================
+
+class ConvertTo3DRequest(BaseModel):
+    """Request to convert first frame to 3D."""
+    
+    upload_id: str = Field(..., description="Upload ID containing the frame")
+    frame_path: str | None = Field(None, description="Path to frame image (optional, uses first frame if not provided)")
+    use_sam: bool = Field(default=True, description="Whether to use SAM segmentation")
+    depth_scale: float = Field(default=1.0, description="Scale factor for depth values")
+    mesh_resolution: int | None = Field(None, description="Target mesh resolution (None = use image size)")
+
+
+@app.post("/api/detection/convert-to-3d")
+async def convert_frame_to_3d(
+    request: ConvertTo3DRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Convert first frame to 3D mesh.
+    
+    This endpoint starts a background task to convert the frame to 3D.
+    Returns immediately with a model_id that can be used to check status.
+    """
+    try:
+        upload_dir = UPLOAD_ROOT / request.upload_id
+        if not upload_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Upload not found: {request.upload_id}")
+        
+        # Find frame image
+        if request.frame_path:
+            frame_path = Path(request.frame_path)
+            if not frame_path.exists():
+                raise HTTPException(status_code=404, detail=f"Frame not found: {request.frame_path}")
+        else:
+            # Find first frame in upload directory
+            frame_files = sorted(upload_dir.glob("*.jpg")) + sorted(upload_dir.glob("*.png"))
+            if not frame_files:
+                raise HTTPException(status_code=404, detail="No frame images found in upload directory")
+            frame_path = frame_files[0]
+        
+        # Ensure 3D models directory exists
+        _ensure_directory(MODELS_3D_DIR)
+        
+        # Generate model ID
+        model_id = f"{request.upload_id}_{uuid4().hex[:8]}"
+        output_dir = _ensure_directory(MODELS_3D_DIR / model_id)
+        
+        # Start background task
+        background_tasks.add_task(
+            run_3d_conversion,
+            frame_path=frame_path,
+            output_dir=output_dir,
+            model_id=model_id,
+            use_sam=request.use_sam,
+            depth_scale=request.depth_scale,
+            mesh_resolution=request.mesh_resolution,
+        )
+        
+        return {
+            "status": "processing",
+            "model_id": model_id,
+            "message": "3D conversion started in background",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception("Failed to start 3D conversion")
+        raise HTTPException(status_code=500, detail=f"Failed to start conversion: {str(e)}")
+
+
+async def run_3d_conversion(
+    frame_path: Path,
+    output_dir: Path,
+    model_id: str,
+    use_sam: bool,
+    depth_scale: float,
+    mesh_resolution: int | None,
+):
+    """Background task to convert frame to 3D."""
+    LOGGER.info("Starting 3D conversion: %s -> %s", frame_path, model_id)
+    
+    try:
+        # Initialize SAM service if needed
+        sam_service = None
+        sam_checkpoint = None
+        if use_sam:
+            default_checkpoint = ROOT_DIR / "models" / "sam_vit_b_01ec64.pth"
+            if default_checkpoint.exists():
+                sam_checkpoint = default_checkpoint
+                sam_service = SamService(
+                    sam_checkpoint=sam_checkpoint,
+                    device="cpu",
+                )
+                sam_service.initialize()
+        
+        # Initialize SAM3D service
+        sam3d_service = Sam3DService(
+            sam_service=sam_service,
+            sam_checkpoint=sam_checkpoint,
+            device="cpu",
+            depth_model="zoedepth",  # Can be changed to "dpt" or "midas"
+        )
+        
+        # Convert to 3D
+        metadata = sam3d_service.convert_image_to_3d(
+            image_path=frame_path,
+            output_dir=output_dir,
+            model_id=model_id,
+            use_sam=use_sam,
+            depth_scale=depth_scale,
+            mesh_resolution=mesh_resolution,
+        )
+        
+        LOGGER.info("3D conversion complete: %s", model_id)
+        
+    except Exception as e:
+        LOGGER.exception("3D conversion failed for %s: %s", model_id, e)
+        # Save error to metadata
+        error_metadata = {
+            "model_id": model_id,
+            "status": "error",
+            "error": str(e),
+        }
+        metadata_path = output_dir / f"{model_id}_metadata.json"
+        import json
+        with open(metadata_path, "w") as f:
+            json.dump(error_metadata, f, indent=2)
+
+
+@app.get("/api/detection/3d-models/{model_id}")
+async def get_3d_model(model_id: str):
+    """Get 3D model metadata and file paths."""
+    model_dir = MODELS_3D_DIR / model_id
+    if not model_dir.exists():
+        raise HTTPException(status_code=404, detail=f"3D model not found: {model_id}")
+    
+    metadata_path = model_dir / f"{model_id}_metadata.json"
+    if not metadata_path.exists():
+        raise HTTPException(status_code=404, detail="Model metadata not found")
+    
+    import json
+    metadata = json.loads(metadata_path.read_text())
+    
+    # Update file paths to be relative to repo mount
+    if "output_files" in metadata:
+        for key, file_path in metadata["output_files"].items():
+            if file_path:
+                rel_path = Path(file_path).relative_to(ROOT_DIR)
+                metadata["output_files"][key] = f"/repo/{rel_path}"
+    
+    return metadata
+
+
+@app.get("/api/detection/3d-models/{model_id}/preview")
+async def get_3d_model_preview(model_id: str):
+    """Get 3D model preview data for web viewer."""
+    model_dir = MODELS_3D_DIR / model_id
+    if not model_dir.exists():
+        raise HTTPException(status_code=404, detail=f"3D model not found: {model_id}")
+    
+    metadata_path = model_dir / f"{model_id}_metadata.json"
+    if not metadata_path.exists():
+        raise HTTPException(status_code=404, detail="Model metadata not found")
+    
+    import json
+    metadata = json.loads(metadata_path.read_text())
+    
+    # Return preview data
+    glb_path = model_dir / f"{model_id}_mesh.glb"
+    obj_path = model_dir / f"{model_id}_mesh.obj"
+    
+    # Prefer GLB, fallback to OBJ
+    mesh_file = None
+    mesh_url = None
+    if glb_path.exists():
+        mesh_file = "glb"
+        rel_path = glb_path.relative_to(ROOT_DIR)
+        mesh_url = f"/repo/{rel_path}"
+    elif obj_path.exists():
+        mesh_file = "obj"
+        rel_path = obj_path.relative_to(ROOT_DIR)
+        mesh_url = f"/repo/{rel_path}"
+    
+    return {
+        "model_id": model_id,
+        "mesh_file": mesh_file,
+        "mesh_url": mesh_url,
+        "metadata": metadata,
+    }
 
 
 @app.get("/labeling", response_class=HTMLResponse)

@@ -14,6 +14,8 @@ let currentVideoName = null;
 let holdColor = 'red';
 let routeDifficulty = 'beginner';
 let firstFrameImageUrl = null; // Store first frame for both preview and hold detection
+let threeViewer = null; // Three.js viewer instance
+let current3DModelId = null; // Current 3D model ID
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -50,6 +52,18 @@ function setupEventListeners() {
       handleVideoFileSelection(event);
     });
   }
+  
+  // 3D conversion button (temporarily disabled)
+  // const btnConvert3D = document.getElementById('btn-convert-to-3d');
+  // if (btnConvert3D) {
+  //   btnConvert3D.addEventListener('click', handleConvertTo3D);
+  // }
+  
+  // Close 3D viewer button (temporarily disabled)
+  // const btnClose3DViewer = document.getElementById('btn-close-3d-viewer');
+  // if (btnClose3DViewer) {
+  //   btnClose3DViewer.addEventListener('click', close3DViewer);
+  // }
 
   // Hold color and route difficulty dropdown changes
   const holdColorSelect = document.getElementById('hold-color');
@@ -1223,5 +1237,216 @@ function generateSessionName() {
   const minutes = String(now.getMinutes()).padStart(2, '0');
 
   return `${year}-${month}-${day}_${hours}${minutes}`;
+}
+
+/**
+ * Handle convert to 3D button click
+ */
+async function handleConvertTo3D() {
+  // Try to get upload ID from current frame directory if not set
+  if (!currentUploadId && currentFrameDir) {
+    // Extract upload ID from frame directory path
+    const pathParts = currentFrameDir.split('/');
+    const uploadIdx = pathParts.indexOf('uploads');
+    if (uploadIdx >= 0 && uploadIdx < pathParts.length - 1) {
+      currentUploadId = pathParts[uploadIdx + 1];
+    }
+  }
+  
+  if (!currentUploadId) {
+    show3DStatus('Please upload a video and extract frames first', 'error');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-convert-to-3d');
+  const statusDiv = document.getElementById('status-3d-conversion');
+  
+  btn.disabled = true;
+  btn.textContent = '🔄 Converting...';
+  statusDiv.style.display = 'block';
+  show3DStatus('Starting 3D conversion...', 'info');
+  
+  try {
+    const response = await fetch('/api/detection/convert-to-3d', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_id: currentUploadId,
+        use_sam: true,
+        depth_scale: 1.0,
+        mesh_resolution: null,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Conversion failed');
+    }
+    
+    const data = await response.json();
+    current3DModelId = data.model_id;
+    
+    show3DStatus('Conversion started. Checking status...', 'info');
+    
+    // Start polling for completion
+    poll3DConversionStatus(data.model_id);
+    
+  } catch (error) {
+    console.error('3D conversion failed:', error);
+    show3DStatus(`Error: ${error.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = '🎨 Convert to 3D';
+  }
+}
+
+/**
+ * Poll for 3D conversion status
+ */
+async function poll3DConversionStatus(modelId) {
+  const maxAttempts = 60; // 5 minutes max (5 second intervals)
+  let attempts = 0;
+  
+  const poll = async () => {
+    attempts++;
+    
+    try {
+      const response = await fetch(`/api/detection/3d-models/${modelId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404 && attempts < maxAttempts) {
+          // Still processing, check again
+          setTimeout(poll, 5000);
+          show3DStatus(`Processing... (${attempts * 5}s)`, 'info');
+          return;
+        }
+        throw new Error('Failed to check conversion status');
+      }
+      
+      const metadata = await response.json();
+      
+      // Check if there's an error
+      if (metadata.status === 'error') {
+        show3DStatus(`Error: ${metadata.error}`, 'error');
+        resetConvertButton();
+        return;
+      }
+      
+      // Conversion complete
+      show3DStatus('Conversion complete! Loading 3D model...', 'success');
+      await display3DModel(modelId);
+      resetConvertButton();
+      
+    } catch (error) {
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 5000);
+      } else {
+        console.error('Polling failed:', error);
+        show3DStatus('Conversion timeout. Please check server logs.', 'error');
+        resetConvertButton();
+      }
+    }
+  };
+  
+  poll();
+}
+
+/**
+ * Display 3D model in viewer
+ */
+async function display3DModel(modelId) {
+  try {
+    // Get preview data
+    const response = await fetch(`/api/detection/3d-models/${modelId}/preview`);
+    if (!response.ok) {
+      throw new Error('Failed to get 3D model preview');
+    }
+    
+    const data = await response.json();
+    
+    if (!data.mesh_url) {
+      throw new Error('No mesh file available');
+    }
+    
+    // Show viewer container
+    const viewerContainer = document.getElementById('3d-viewer-container');
+    viewerContainer.style.display = 'block';
+    
+    // Initialize Three.js viewer if not already done
+    if (!threeViewer) {
+      const viewerDiv = document.getElementById('three-viewer');
+      threeViewer = new ThreeViewer('three-viewer', {
+        width: viewerDiv.clientWidth,
+        height: 500,
+        backgroundColor: 0x1a1a1a,
+      });
+    }
+    
+    // Load model
+    await threeViewer.loadModel(data.mesh_url, data.mesh_file);
+    
+    // Update model info
+    const infoDiv = document.getElementById('3d-model-info');
+    if (data.metadata && data.metadata.mesh_stats) {
+      const stats = data.metadata.mesh_stats;
+      infoDiv.textContent = `Vertices: ${stats.vertex_count.toLocaleString()}, Faces: ${stats.face_count.toLocaleString()}`;
+    }
+    
+    show3DStatus('3D model loaded successfully!', 'success');
+    
+    // Scroll to viewer
+    viewerContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+  } catch (error) {
+    console.error('Failed to display 3D model:', error);
+    show3DStatus(`Error loading 3D model: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Close 3D viewer
+ */
+function close3DViewer() {
+  const viewerContainer = document.getElementById('3d-viewer-container');
+  viewerContainer.style.display = 'none';
+  
+  if (threeViewer) {
+    threeViewer.destroy();
+    threeViewer = null;
+  }
+  
+  current3DModelId = null;
+}
+
+/**
+ * Show 3D conversion status
+ */
+function show3DStatus(message, type) {
+  const statusDiv = document.getElementById('status-3d-conversion');
+  statusDiv.textContent = message;
+  statusDiv.className = `status-3d-${type}`;
+  
+  // Set color based on type
+  if (type === 'error') {
+    statusDiv.style.background = 'rgba(218, 54, 51, 0.2)';
+    statusDiv.style.color = '#f85149';
+    statusDiv.style.border = '1px solid #f85149';
+  } else if (type === 'success') {
+    statusDiv.style.background = 'rgba(35, 134, 54, 0.2)';
+    statusDiv.style.color = '#3fb950';
+    statusDiv.style.border = '1px solid #3fb950';
+  } else {
+    statusDiv.style.background = 'rgba(56, 139, 253, 0.2)';
+    statusDiv.style.color = '#58a6ff';
+    statusDiv.style.border = '1px solid #58a6ff';
+  }
+}
+
+/**
+ * Reset convert button
+ */
+function resetConvertButton() {
+  const btn = document.getElementById('btn-convert-to-3d');
+  btn.disabled = false;
+  btn.textContent = '🎨 Convert to 3D';
 }
 

@@ -13,3 +13,6 @@ python-dotenv
 segment-anything
 torch
 torchvision
+transformers
+trimesh
+pygltflib
