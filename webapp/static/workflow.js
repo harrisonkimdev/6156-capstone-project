@@ -17,7 +17,6 @@ let firstFrameImageUrl = null; // Store first frame for both preview and hold de
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOM Content Loaded - Setting up event listeners');
   setupEventListeners();
   loadSessions();
   loadTrainingJobs();
@@ -55,18 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
  * Setup event listeners
  */
 function setupEventListeners() {
-  console.log('Setting up event listeners...');
-  
   // Video file selection - show first frame preview
   const videoFileInput = document.getElementById('video-file');
   if (videoFileInput) {
-    console.log('Found video-file input, attaching change listener');
-    videoFileInput.addEventListener('change', function(event) {
-      console.log('Video file changed event triggered');
+    videoFileInput.addEventListener('change', function (event) {
       handleVideoFileSelection(event);
     });
-  } else {
-    console.error('video-file element not found!');
   }
 
   // Hold color and route difficulty dropdown changes
@@ -74,7 +67,7 @@ function setupEventListeners() {
   if (holdColorSelect) {
     holdColorSelect.addEventListener('change', updateVideoPreview);
   }
-  
+
   const routeDifficultySelect = document.getElementById('route-difficulty');
   if (routeDifficultySelect) {
     routeDifficultySelect.addEventListener('change', updateVideoPreview);
@@ -85,22 +78,22 @@ function setupEventListeners() {
   if (btnExtractFrames) {
     btnExtractFrames.addEventListener('click', extractFrames);
   }
-  
+
   const btnCreateSession = document.getElementById('btn-create-session');
   if (btnCreateSession) {
     btnCreateSession.addEventListener('click', createSession);
   }
-  
+
   const btnStartTraining = document.getElementById('btn-start-training');
   if (btnStartTraining) {
     btnStartTraining.addEventListener('click', startTraining);
   }
-  
+
   const btnUploadGCS = document.getElementById('btn-upload-gcs');
   if (btnUploadGCS) {
     btnUploadGCS.addEventListener('click', uploadToGCS);
   }
-  
+
   const btnClearData = document.getElementById('btn-clear-data');
   if (btnClearData) {
     btnClearData.addEventListener('click', clearAllData);
@@ -116,22 +109,22 @@ function setupEventListeners() {
   if (frameSlider) {
     frameSlider.addEventListener('input', handleFrameSliderChange);
   }
-  
+
   const btnSaveToPool = document.getElementById('btn-save-to-pool');
   if (btnSaveToPool) {
     btnSaveToPool.addEventListener('click', saveToTrainingPool);
   }
-  
+
   const btnTrainFrameSelector = document.getElementById('btn-train-frame-selector');
   if (btnTrainFrameSelector) {
     btnTrainFrameSelector.addEventListener('click', trainFrameSelector);
   }
-  
+
   const btnViewAll = document.getElementById('btn-view-all');
   if (btnViewAll) {
     btnViewAll.addEventListener('click', () => setViewMode('all'));
   }
-  
+
   const btnViewSelected = document.getElementById('btn-view-selected');
   if (btnViewSelected) {
     btnViewSelected.addEventListener('click', () => setViewMode('selected'));
@@ -142,8 +135,6 @@ function setupEventListeners() {
 
   // Load training pool info on page load
   loadTrainingPoolInfo();
-  
-  console.log('Event listeners setup complete');
 }
 
 /**
@@ -1253,7 +1244,6 @@ function handleVideoFileSelection(event) {
     let metadataLoaded = false;
 
     video.onloadedmetadata = () => {
-      console.log('Video metadata loaded');
       metadataLoaded = true;
       // Seek to first frame
       video.currentTime = 0;
@@ -1262,7 +1252,6 @@ function handleVideoFileSelection(event) {
     video.onseeked = () => {
       if (!metadataLoaded) return;
 
-      console.log('Frame seeked, drawing canvas');
       // Draw frame to canvas
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -1277,7 +1266,6 @@ function handleVideoFileSelection(event) {
           const previewImg = document.getElementById('first-frame-preview');
           if (previewImg) {
             previewImg.src = previewUrl;
-            console.log('Preview image set');
           }
 
           // Also display in hold detection UI
@@ -1303,12 +1291,10 @@ function handleVideoFileSelection(event) {
 
     // Add error handling
     video.onerror = () => {
-      console.error('Video load error');
     };
 
     video.load();
   } catch (error) {
-    console.error('Error handling video file:', error);
   }
 
   // Update metadata display
@@ -1321,13 +1307,6 @@ function handleVideoFileSelection(event) {
 function updateVideoPreview() {
   const holdColorSelect = document.getElementById('hold-color');
   const routeDifficultySelect = document.getElementById('route-difficulty');
-
-  const holdColorLabel = holdColorSelect.options[holdColorSelect.selectedIndex].text;
-  const routeDiffLabel = routeDifficultySelect.options[routeDifficultySelect.selectedIndex].text;
-
-  document.getElementById('preview-hold-color').textContent = holdColorLabel;
-  document.getElementById('preview-route-difficulty').textContent = routeDiffLabel;
-
   // Also update state variables
   holdColor = holdColorSelect.value;
   routeDifficulty = routeDifficultySelect.value;
