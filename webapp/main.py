@@ -1257,10 +1257,17 @@ async def testing_page(request: Request) -> HTMLResponse:
 # Hold Labeling Endpoints
 # ============================================================================
 
-@app.get("/workflow", response_class=HTMLResponse)
-async def workflow_page(request: Request):
-    """Render integrated workflow page."""
+@app.get("/detection", response_class=HTMLResponse)
+async def detection_model_training_page(request: Request):
+    """Render detection model training page (YOLO hold detection workflow)."""
     return templates.TemplateResponse("workflow.html", {"request": request})
+
+
+@app.get("/workflow", response_class=HTMLResponse)
+async def workflow_page_redirect(request: Request):
+    """Redirect old workflow route to new detection route for backward compatibility."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/detection", status_code=301)
 
 
 @app.get("/labeling", response_class=HTMLResponse)

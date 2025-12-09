@@ -2,527 +2,311 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hold Labeling Workflow - BetaMove</title>
+  <title>Detection Model Training - BetaMove</title>
   <link rel="stylesheet" href="/static/app.css">
-  <style>
-    .workflow-container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    .workflow-steps {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      margin-bottom: 30px;
-    }
-
-    .step-card {
-      background: #1e1e1e;
-      padding: 20px;
-      border-radius: 8px;
-      border: 2px solid #333;
-    }
-
-    .step-card.active {
-      border-color: #0066cc;
-    }
-
-    .step-card.completed {
-      border-color: #00cc66;
-    }
-
-    .step-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 15px;
-    }
-
-    .step-number {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      background: #333;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      color: #fff;
-    }
-
-    .step-card.active .step-number {
-      background: #0066cc;
-    }
-
-    .step-card.completed .step-number {
-      background: #00cc66;
-    }
-
-    .step-title {
-      flex: 1;
-      font-size: 16px;
-      font-weight: bold;
-      color: #fff;
-    }
-
-    .step-content {
-      color: #aaa;
-      font-size: 14px;
-      margin-bottom: 15px;
-    }
-
-    .step-actions button {
-      width: 100%;
-      padding: 10px;
-      background: #0066cc;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    .step-actions button:hover {
-      background: #0052a3;
-    }
-
-    .step-actions button:disabled {
-      background: #444;
-      cursor: not-allowed;
-    }
-
-    .step-status {
-      padding: 8px;
-      border-radius: 4px;
-      font-size: 13px;
-      margin-top: 10px;
-    }
-
-    .step-status.success {
-      background: #00cc6620;
-      color: #00cc66;
-    }
-
-    .step-status.error {
-      background: #cc333320;
-      color: #cc3333;
-    }
-
-    .step-status.info {
-      background: #0066cc20;
-      color: #0066cc;
-    }
-
-    .form-group {
-      margin-bottom: 15px;
-    }
-
-    .form-group label {
-      display: block;
-      color: #fff;
-      margin-bottom: 5px;
-      font-size: 13px;
-    }
-
-    .form-group input,
-    .form-group select {
-      width: 100%;
-      padding: 8px;
-      background: #2a2a2a;
-      border: 1px solid #444;
-      border-radius: 4px;
-      color: #fff;
-      font-size: 13px;
-    }
-
-    .session-list {
-      background: #1e1e1e;
-      padding: 20px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-
-    .session-item {
-      background: #2a2a2a;
-      padding: 15px;
-      border-radius: 4px;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .session-info {
-      flex: 1;
-    }
-
-    .session-name {
-      color: #fff;
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-
-    .session-meta {
-      color: #888;
-      font-size: 12px;
-    }
-
-    .session-actions {
-      display: flex;
-      gap: 10px;
-    }
-
-    .session-actions button {
-      padding: 6px 12px;
-      background: #0066cc;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .training-status {
-      background: #1e1e1e;
-      padding: 20px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-
-    .training-job {
-      background: #2a2a2a;
-      padding: 15px;
-      border-radius: 4px;
-      margin-bottom: 10px;
-    }
-
-    .job-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-
-    .job-id {
-      color: #aaa;
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    .job-status {
-      padding: 4px 8px;
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: bold;
-    }
-
-    .job-status.running {
-      background: #0066cc;
-      color: white;
-    }
-
-    .job-status.completed {
-      background: #00cc66;
-      color: white;
-    }
-
-    .job-status.failed {
-      background: #cc3333;
-      color: white;
-    }
-  </style>
 </head>
 
 <body>
-  <nav style="background: #1a1a1a; padding: 15px 20px; margin-bottom: 20px;">
-    <div style="max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
-      <h1 style="margin: 0; color: #fff; font-size: 20px;">🧗 BetaMove - Hold Labeling Workflow</h1>
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <button id="btn-clear-data"
-          style="padding: 8px 12px; background: #cc3333; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
-          🔄 Clear Data
+  <header class="topnav">
+    <div class="inner">
+      <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+          alt="BetaMove logo"><span>BetaMove</span></a>
+      <nav>
+        <a href="/">Pipeline</a>
+        <a href="/training">Training</a>
+        <a href="/testing">Testing</a>
+        <span style="color: #666; margin: 0 12px;">|</span>
+        <a href="/detection" class="active">Detection Model Training</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    <section class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h1 class="title">Detection Model Training</h1>
+          <p class="subtitle">Train YOLO models for hold detection using labeled climbing wall images.</p>
+        </div>
+        <button id="btn-clear-data" type="button" class="secondary-btn" style="background: #cc3333; color: white;">
+          🔄 Clear Training Data
         </button>
-        <a href="/" style="color: #0066cc; text-decoration: none;">← Back to Home</a>
       </div>
-    </div>
-  </nav>
+    </section>
 
-  <div class="workflow-container">
-    <div class="workflow-steps">
-      <!-- Step 1: Upload Video -->
-      <div id="step-1" class="step-card active">
-        <div class="step-header">
-          <div class="step-number">1</div>
-          <div class="step-title" id="step-1-title">Upload Video</div>
-        </div>
-        <div class="step-content" id="step-1-content">
-          Upload a climbing video to start segmentation and key frame selection.
-        </div>
-
-        <div class="form-group">
-          <label>Video File</label>
-          <input type="file" id="video-file" accept="video/*">
-          <!-- Video preview section -->
-          <div id="video-preview-container"
-            style="display: none; margin-top: 15px; padding: 15px; background: #2a2a2a; border-radius: 4px;">
-            <div style="font-size: 12px; color: #aaa; margin-bottom: 10px;">
-              <strong style="color: #fff;">📹 Selected:</strong> <span id="preview-filename"
-                style="color: #0066cc;"></span>
+    <section class="card">
+      <div class="workflow-container">
+        <div class="workflow-steps">
+          <!-- Step 1: Upload Video -->
+          <div id="step-1" class="step-card active">
+            <div class="step-header">
+              <div class="step-number">1</div>
+              <div class="step-title" id="step-1-title">Upload Video</div>
             </div>
-            <div
-              style="background: #1a1a1a; border-radius: 4px; overflow: hidden; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
-              <img id="first-frame-preview" src="" alt="First frame"
-                style="width: 100%; height: 100%; object-fit: contain;">
+            <div class="step-content" id="step-1-content">
+              Upload a climbing video to start segmentation and key frame selection.
             </div>
-          </div>
-        </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-          <div class="form-group">
-            <label>Hold Color <span style="font-size: 11px; color: #888;">(Optional)</span></label>
-            <select id="hold-color">
-              <option value="red">🔴 Red</option>
-              <option value="blue">🔵 Blue</option>
-              <option value="green">🟢 Green</option>
-              <option value="yellow">🟡 Yellow</option>
-              <option value="purple">🟣 Purple</option>
-              <option value="black">⚫ Black</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Route Difficulty <span style="font-size: 11px; color: #888;">(Optional)</span></label>
-            <select id="route-difficulty">
-              <option value="pink">🟩 Pink (Easier)</option>
-              <option value="black">⬛ Black</option>
-              <option value="yellow">🟨 Yellow</option>
-              <option value="orange">🟧 Orange</option>
-              <option value="white">⬜ White</option>
-              <option value="purple">🟪 Purple</option>
-              <option value="green">🟩 Green</option>
-              <option value="blue">🟦 Blue (Harder)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="step-actions">
-          <button id="btn-extract-frames">🔍 Start Segmentation</button>
-        </div>
-        <div id="status-step-1" class="step-status" style="display: none;"></div>
-
-        <!-- Frame Selection UI (hidden by default) -->
-        <div id="frame-selection-ui" style="display: none; margin-top: 20px;">
-          <div style="border-top: 1px solid #333; padding-top: 20px;">
-            <h3 style="color: #fff; margin-bottom: 15px;">Manual Frame Selection</h3>
-            <div style="background: #2a2a2a; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <span style="color: #aaa;">Frame <span id="frame-current">0</span> / <span
-                    id="frame-total">0</span></span>
-                <span style="color: #aaa;">Selected: <span id="frame-selected-count"
-                    style="color: #0066cc; font-weight: bold;">0</span></span>
+            <div class="form-group">
+              <label>Video File</label>
+              <input type="file" id="video-file" accept="video/*">
+              <!-- Video preview section -->
+              <div id="video-preview-container" class="video-preview-container" style="display: none;">
+                <div class="preview-meta">
+                  <strong style="color: var(--text-primary);">📹 Selected:</strong> <span id="preview-filename"
+                    style="color: var(--primary);"></span>
+                </div>
+                <div class="preview-frame">
+                  <img id="first-frame-preview" src="" alt="First frame">
+                </div>
               </div>
+            </div>
 
-              <!-- Frame comparison view (layout adjusts based on aspect ratio) -->
-              <div id="frame-comparison-container" style="margin-bottom: 10px;">
-                <!-- Vertical layout (side-by-side) for vertical videos -->
-                <div id="vertical-layout"
-                  style="display: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                  <!-- Previously selected frame -->
-                  <div style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden;">
-                    <div
-                      style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
-                      Previously Selected</div>
-                    <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
-                      <img id="frame-preview-prev-vertical" src=""
-                        style="width: 100%; height: 100%; object-fit: contain;">
-                    </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Hold Color <span style="font-size: 11px; color: #888;">(Optional)</span></label>
+                <select id="hold-color">
+                  <option value="red">🔴 Red</option>
+                  <option value="blue">🔵 Blue</option>
+                  <option value="green">🟢 Green</option>
+                  <option value="yellow">🟡 Yellow</option>
+                  <option value="purple">🟣 Purple</option>
+                  <option value="black">⚫ Black</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Route Difficulty <span style="font-size: 11px; color: #888;">(Optional)</span></label>
+                <select id="route-difficulty">
+                  <option value="pink">🟩 Pink (Easier)</option>
+                  <option value="black">⬛ Black</option>
+                  <option value="yellow">🟨 Yellow</option>
+                  <option value="orange">🟧 Orange</option>
+                  <option value="white">⬜ White</option>
+                  <option value="purple">🟪 Purple</option>
+                  <option value="green">🟩 Green</option>
+                  <option value="blue">🟦 Blue (Harder)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="step-actions">
+              <button id="btn-extract-frames">🔍 Start Segmentation</button>
+            </div>
+            <div id="status-step-1" class="step-status" style="display: none;"></div>
+
+            <!-- Frame Selection UI (hidden by default) -->
+            <div id="frame-selection-ui" style="display: none; margin-top: 20px;">
+              <div style="border-top: 1px solid #333; padding-top: 20px;">
+                <h3 style="color: #fff; margin-bottom: 15px;">Manual Frame Selection</h3>
+                <div style="background: #2a2a2a; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="color: #aaa;">Frame <span id="frame-current">0</span> / <span
+                        id="frame-total">0</span></span>
+                    <span style="color: #aaa;">Selected: <span id="frame-selected-count"
+                        style="color: #0066cc; font-weight: bold;">0</span></span>
                   </div>
-                  <!-- Current frame -->
-                  <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
-                    <div
-                      style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
-                      Current</div>
-                    <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
-                      <img id="frame-preview" src="" style="width: 100%; height: 100%; object-fit: contain;">
-                      <div id="frame-selected-badge"
-                        style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
-                        ✓ SELECTED
+
+                  <!-- Frame comparison view (layout adjusts based on aspect ratio) -->
+                  <div id="frame-comparison-container" style="margin-bottom: 10px;">
+                    <!-- Vertical layout (side-by-side) for vertical videos -->
+                    <div id="vertical-layout"
+                      style="display: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                      <!-- Previously selected frame -->
+                      <div style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden;">
+                        <div
+                          style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
+                          Previously Selected</div>
+                        <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
+                          <img id="frame-preview-prev-vertical" src=""
+                            style="width: 100%; height: 100%; object-fit: contain;">
+                        </div>
+                      </div>
+                      <!-- Current frame -->
+                      <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
+                        <div
+                          style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
+                          Current</div>
+                        <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
+                          <img id="frame-preview" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                          <div id="frame-selected-badge"
+                            style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
+                            ✓ SELECTED
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Horizontal layout (stacked) for horizontal videos -->
+                    <div id="horizontal-layout" style="display: none;">
+                      <!-- Previously selected frame -->
+                      <div
+                        style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+                        <div
+                          style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
+                          Previously Selected</div>
+                        <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
+                          <img id="frame-preview-prev-horizontal" src=""
+                            style="width: 100%; height: 100%; object-fit: contain;">
+                        </div>
+                      </div>
+                      <!-- Current frame -->
+                      <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
+                        <div
+                          style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
+                          Current</div>
+                        <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
+                          <img id="frame-preview-current-horizontal" src=""
+                            style="width: 100%; height: 100%; object-fit: contain;">
+                          <div id="frame-selected-badge"
+                            style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
+                            ✓ SELECTED
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <!-- Horizontal layout (stacked) for horizontal videos -->
-                <div id="horizontal-layout" style="display: none;">
-                  <!-- Previously selected frame -->
+                  <div style="margin-top: 10px;">
+                    <input type="range" id="frame-slider" min="0" max="0" value="0" style="width: 100%;">
+                  </div>
                   <div
-                    style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
-                    <div
-                      style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
-                      Previously Selected</div>
-                    <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
-                      <img id="frame-preview-prev-horizontal" src=""
-                        style="width: 100%; height: 100%; object-fit: contain;">
+                    style="margin-top: 15px; color: #aaa; font-size: 12px; background: #1e1e1e; padding: 10px; border-radius: 4px;">
+                    <strong>Keyboard Shortcuts:</strong><br>
+                    <kbd>←</kbd> Previous frame &nbsp;|&nbsp; <kbd>→</kbd> Next frame &nbsp;|&nbsp; <kbd>S</kbd> Select
+                    frame &nbsp;|&nbsp; <kbd>X</kbd> Deselect frame
+                  </div>
+
+                  <!-- View Mode Toggle -->
+                  <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
+                    <div style="flex: 1; display: flex; gap: 5px;">
+                      <button id="btn-view-all"
+                        style="flex: 1; padding: 8px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
+                        📋 All Frames
+                      </button>
+                      <button id="btn-view-selected"
+                        style="flex: 1; padding: 8px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
+                        ⭐ Selected Only
+                      </button>
+                    </div>
+                    <div id="selected-frames-counter"
+                      style="padding: 8px 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #00cc66; font-weight: bold; white-space: nowrap;">
+                      0 selected
                     </div>
                   </div>
-                  <!-- Current frame -->
-                  <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
-                    <div
-                      style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">
-                      Current</div>
-                    <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
-                      <img id="frame-preview-current-horizontal" src=""
-                        style="width: 100%; height: 100%; object-fit: contain;">
-                      <div id="frame-selected-badge"
-                        style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
-                        ✓ SELECTED
-                      </div>
-                    </div>
-                  </div>
                 </div>
-              </div>
-
-              <div style="margin-top: 10px;">
-                <input type="range" id="frame-slider" min="0" max="0" value="0" style="width: 100%;">
-              </div>
-              <div
-                style="margin-top: 15px; color: #aaa; font-size: 12px; background: #1e1e1e; padding: 10px; border-radius: 4px;">
-                <strong>Keyboard Shortcuts:</strong><br>
-                <kbd>←</kbd> Previous frame &nbsp;|&nbsp; <kbd>→</kbd> Next frame &nbsp;|&nbsp; <kbd>S</kbd> Select
-                frame &nbsp;|&nbsp; <kbd>X</kbd> Deselect frame
-              </div>
-
-              <!-- View Mode Toggle -->
-              <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
-                <div style="flex: 1; display: flex; gap: 5px;">
-                  <button id="btn-view-all"
-                    style="flex: 1; padding: 8px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
-                    📋 All Frames
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                  <button id="btn-save-to-pool"
+                    style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                    💾 Save to Training Pool
                   </button>
-                  <button id="btn-view-selected"
-                    style="flex: 1; padding: 8px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
-                    ⭐ Selected Only
+                  <button id="btn-train-frame-selector"
+                    style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                    🚀 Train Now (Current Video)
                   </button>
                 </div>
-                <div id="selected-frames-counter"
-                  style="padding: 8px 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #00cc66; font-weight: bold; white-space: nowrap;">
-                  0 selected
+                <div id="training-pool-info"
+                  style="margin-top: 10px; padding: 10px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa;">
+                  <strong>Training Pool:</strong> <span id="pool-video-count">0</span> videos, <span
+                    id="pool-frame-count">0</span> frames
                 </div>
               </div>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-              <button id="btn-save-to-pool"
-                style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                💾 Save to Training Pool
-              </button>
-              <button id="btn-train-frame-selector"
-                style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                🚀 Train Now (Current Video)
-              </button>
-            </div>
-            <div id="training-pool-info"
-              style="margin-top: 10px; padding: 10px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa;">
-              <strong>Training Pool:</strong> <span id="pool-video-count">0</span> videos, <span
-                id="pool-frame-count">0</span> frames
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Step 2: SAM Labeling -->
-      <div id="step-2" class="step-card">
-        <div class="step-header">
-          <div class="step-number">2</div>
-          <div class="step-title">Label Holds (SAM)</div>
-        </div>
-        <div class="step-content">
-          Annotate holds on the first frame using SAM segmentation.
-        </div>
-        <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
-          <div style="border-top: 1px solid #333; padding-top: 20px;">
-            <div style="background: #2a2a2a; padding: 20px; border-radius: 4px; margin-bottom: 20px;">
-              <div
-                style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; overflow: hidden;">
-                <img id="hold-labeling-frame" src="" style="width: 100%; height: 100%; object-fit: contain;">
+          <!-- Step 2: SAM Labeling -->
+          <div id="step-2" class="step-card">
+            <div class="step-header">
+              <div class="step-number">2</div>
+              <div class="step-title">Label Holds (SAM)</div>
+            </div>
+            <div class="step-content">
+              Annotate holds on the first frame using SAM segmentation.
+            </div>
+            <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
+              <div style="border-top: 1px solid #333; padding-top: 20px;">
+                <div style="background: #2a2a2a; padding: 20px; border-radius: 4px; margin-bottom: 20px;">
+                  <div
+                    style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; overflow: hidden;">
+                    <img id="hold-labeling-frame" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                  </div>
+                  <p style="color: #aaa; font-size: 13px; margin-bottom: 15px;">
+                    Click below to start SAM segmentation on this frame. Each segment will be assigned a hold type.
+                  </p>
+                  <button id="btn-open-sam-labeler"
+                    style="width: 100%; padding: 14px; background: #ff6600; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;">
+                    🎯 Start Segmentation
+                  </button>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                  <button id="btn-save-holds-to-pool"
+                    style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
+                    💾 Save Holds to Pool
+                  </button>
+                  <button id="btn-train-yolo"
+                    style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
+                    🚀 Train YOLO (All Pool)
+                  </button>
+                </div>
+                <div id="holds-pool-info"
+                  style="margin-top: 15px; padding: 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #0066cc;">
+                  <strong style="color: #0066cc;">Holds Pool:</strong> <span id="pool-holds-count">0</span> labeled sets
+                </div>
               </div>
-              <p style="color: #aaa; font-size: 13px; margin-bottom: 15px;">
-                Click below to start SAM segmentation on this frame. Each segment will be assigned a hold type.
+            </div>
+            <div id="status-step-2" class="step-status" style="display: none;"></div>
+          </div>
+
+          <!-- Step 3: YOLO Training -->
+          <div id="step-3" class="step-card">
+            <div class="step-header">
+              <div class="step-number">3</div>
+              <div class="step-title">Key Frame Selection</div>
+            </div>
+            <div class="step-content">
+              Required: select key frames (or run the selector) to drive the analysis.
+            </div>
+            <div style="padding: 15px; background: #2a2a2a; border-radius: 4px; color: #aaa;">
+              <p>Frame selection learning is available during the frame extraction step (Step 1 - Frame Selection mode).
               </p>
-              <button id="btn-open-sam-labeler"
-                style="width: 100%; padding: 14px; background: #ff6600; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;">
-                🎯 Start Segmentation
-              </button>
             </div>
-            <div style="display: flex; gap: 10px; margin-top: 15px;">
-              <button id="btn-save-holds-to-pool"
-                style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
-                💾 Save Holds to Pool
-              </button>
-              <button id="btn-train-yolo"
-                style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
-                🚀 Train YOLO (All Pool)
-              </button>
+            <div id="status-step-3" class="step-status" style="display: none;"></div>
+          </div>
+
+          <!-- Step 4: Upload to GCS -->
+          <div id="step-4" class="step-card">
+            <div class="step-header">
+              <div class="step-number">4</div>
+              <div class="step-title">Upload to GCS</div>
             </div>
-            <div id="holds-pool-info"
-              style="margin-top: 15px; padding: 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #0066cc;">
-              <strong style="color: #0066cc;">Holds Pool:</strong> <span id="pool-holds-count">0</span> labeled sets
+            <div class="step-content">
+              Upload the trained YOLO model to Google Cloud Storage for deployment.
             </div>
+            <div class="step-actions">
+              <button id="btn-upload-gcs" disabled>Upload Model</button>
+            </div>
+            <div id="status-step-4" class="step-status" style="display: none;"></div>
           </div>
         </div>
-        <div id="status-step-2" class="step-status" style="display: none;"></div>
-      </div>
 
-      <!-- Step 3: YOLO Training -->
-      <div id="step-3" class="step-card">
-        <div class="step-header">
-          <div class="step-number">3</div>
-          <div class="step-title">Key Frame Selection</div>
+        <!-- Active Sessions -->
+        <div class="session-list">
+          <h2 style="color: #fff; margin-top: 0;">Labeling Sessions</h2>
+          <div id="sessions-container">
+            <p style="color: #888;">No sessions yet. Start segmentation to create one.</p>
+          </div>
         </div>
-        <div class="step-content">
-          Required: select key frames (or run the selector) to drive the analysis.
-        </div>
-        <div style="padding: 15px; background: #2a2a2a; border-radius: 4px; color: #aaa;">
-          <p>Frame selection learning is available during the frame extraction step (Step 1 - Frame Selection mode).</p>
-        </div>
-        <div id="status-step-3" class="step-status" style="display: none;"></div>
-      </div>
 
-      <!-- Step 4: Upload to GCS -->
-      <div id="step-4" class="step-card">
-        <div class="step-header">
-          <div class="step-number">4</div>
-          <div class="step-title">Upload to GCS</div>
+        <!-- Training Jobs -->
+        <div class="training-status">
+          <h2 style="color: #fff; margin-top: 0;">Training Jobs</h2>
+          <div id="jobs-container">
+            <p style="color: #888;">No training jobs yet. Train after labeling/selection.</p>
+          </div>
         </div>
-        <div class="step-content">
-          Upload the trained YOLO model to Google Cloud Storage for deployment.
-        </div>
-        <div class="step-actions">
-          <button id="btn-upload-gcs" disabled>Upload Model</button>
-        </div>
-        <div id="status-step-4" class="step-status" style="display: none;"></div>
       </div>
-    </div>
-
-    <!-- Active Sessions -->
-    <div class="session-list">
-      <h2 style="color: #fff; margin-top: 0;">Labeling Sessions</h2>
-      <div id="sessions-container">
-        <p style="color: #888;">No sessions yet. Start segmentation to create one.</p>
-      </div>
-    </div>
-
-    <!-- Training Jobs -->
-    <div class="training-status">
-      <h2 style="color: #fff; margin-top: 0;">Training Jobs</h2>
-      <div id="jobs-container">
-        <p style="color: #888;">No training jobs yet. Train after labeling/selection.</p>
-      </div>
-    </div>
-  </div>
-
+    </section>
+  </main>
   <script src="/static/workflow.js"></script>
 </body>
 

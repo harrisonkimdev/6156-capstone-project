@@ -3,121 +3,21 @@
 
 <head>
     <meta charset="utf-8">
-    <title>BetaMove Pipeline Testing</title>
+    <title>Testing - BetaMove</title>
     <link rel="stylesheet" href="/static/app.css">
-    <style>
-        .step-tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-        }
-
-        .step-tab {
-            padding: 8px 16px;
-            border: 1px solid #ddd;
-            background: #f9f9f9;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .step-tab:hover {
-            background: #f0f0f0;
-        }
-
-        .step-tab.active {
-            background: var(--primary);
-            color: #fff;
-            border-color: var(--primary);
-        }
-
-        .step-section {
-            display: none;
-        }
-
-        .step-section.active {
-            display: block;
-        }
-
-        .output-section {
-            margin-top: 24px;
-            padding: 16px;
-            background: #f9f9f9;
-            border-radius: 8px;
-        }
-
-        .output-section h3 {
-            margin-top: 0;
-        }
-
-        .json-viewer {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 16px;
-            border-radius: 8px;
-            overflow-x: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .validation-result {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 8px;
-        }
-
-        .validation-result.success {
-            background: #10b981;
-            color: #fff;
-        }
-
-        .validation-result.error {
-            background: #ef4444;
-            color: #fff;
-        }
-
-        .validation-result.pending {
-            background: #6b7280;
-            color: #fff;
-        }
-
-        .file-link {
-            color: var(--primary);
-            text-decoration: none;
-        }
-
-        .file-link:hover {
-            text-decoration: underline;
-        }
-
-        .log-output {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-    </style>
 </head>
 
 <body>
     <header class="topnav">
         <div class="inner">
-            <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png" alt="BetaMove logo"><span>BetaMove</span></a>
+            <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+                    alt="BetaMove logo"><span>BetaMove</span></a>
             <nav>
                 <a href="/">Pipeline</a>
                 <a href="/training">Training</a>
                 <a href="/testing" class="active">Testing</a>
+                <span style="color: #666; margin: 0 12px;">|</span>
+                <a href="/detection">Detection Model Training</a>
             </nav>
         </div>
     </header>
@@ -153,7 +53,8 @@
                     </div>
                 </form>
                 <div class="output-section" id="output-extract-frames" style="display: none;">
-                    <h3>Output <span class="validation-result pending" id="validation-extract-frames">Pending</span></h3>
+                    <h3>Output <span class="validation-result pending" id="validation-extract-frames">Pending</span>
+                    </h3>
                     <div id="result-extract-frames"></div>
                     <div class="log-output" id="log-extract-frames"></div>
                 </div>
@@ -206,12 +107,14 @@
                 <form id="form-estimate-wall-angle" class="form">
                     <div class="form-row">
                         <label for="image_path">Image Path</label>
-                        <input type="text" id="image_path" name="image_path" placeholder="data/frames/video01/frame_0000.jpg" required>
+                        <input type="text" id="image_path" name="image_path"
+                            placeholder="data/frames/video01/frame_0000.jpg" required>
                         <p class="hint">Path to representative frame image</p>
                     </div>
                     <div class="form-row">
                         <label for="hold_centers">Hold Centers (Optional)</label>
-                        <textarea id="hold_centers" name="hold_centers" placeholder='[[0.5, 0.3], [0.6, 0.4]]' rows="3"></textarea>
+                        <textarea id="hold_centers" name="hold_centers" placeholder='[[0.5, 0.3], [0.6, 0.4]]'
+                            rows="3"></textarea>
                         <p class="hint">JSON array of [x, y] coordinates (normalized 0-1)</p>
                     </div>
                     <div class="form-actions">
@@ -220,7 +123,8 @@
                     </div>
                 </form>
                 <div class="output-section" id="output-estimate-wall-angle" style="display: none;">
-                    <h3>Output <span class="validation-result pending" id="validation-estimate-wall-angle">Pending</span></h3>
+                    <h3>Output <span class="validation-result pending"
+                            id="validation-estimate-wall-angle">Pending</span></h3>
                     <div id="result-estimate-wall-angle"></div>
                     <div class="log-output" id="log-estimate-wall-angle"></div>
                 </div>
@@ -232,7 +136,8 @@
                 <form id="form-estimate-pose" class="form">
                     <div class="form-row">
                         <label for="manifest_path">Manifest Path</label>
-                        <input type="text" id="manifest_path" name="manifest_path" placeholder="data/frames/video01/manifest.json" required>
+                        <input type="text" id="manifest_path" name="manifest_path"
+                            placeholder="data/frames/video01/manifest.json" required>
                         <p class="hint">Path to manifest.json (from Step 1)</p>
                     </div>
                     <div class="form-actions">
@@ -254,12 +159,14 @@
                 <form id="form-extract-features" class="form">
                     <div class="form-row">
                         <label for="manifest_path_features">Manifest Path</label>
-                        <input type="text" id="manifest_path_features" name="manifest_path" placeholder="data/frames/video01/manifest.json" required>
+                        <input type="text" id="manifest_path_features" name="manifest_path"
+                            placeholder="data/frames/video01/manifest.json" required>
                         <p class="hint">Path to manifest.json (from Step 1)</p>
                     </div>
                     <div class="form-row">
                         <label for="holds_path">Holds Path (Optional)</label>
-                        <input type="text" id="holds_path" name="holds_path" placeholder="data/frames/video01/holds.json">
+                        <input type="text" id="holds_path" name="holds_path"
+                            placeholder="data/frames/video01/holds.json">
                         <p class="hint">Path to holds.json (from Step 2)</p>
                     </div>
                     <div class="form-row inline">
@@ -279,7 +186,8 @@
                         </div>
                         <div>
                             <label for="climber_flexibility">Flexibility (0-1)</label>
-                            <input type="number" id="climber_flexibility" name="climber_flexibility" min="0" max="1" step="0.1">
+                            <input type="number" id="climber_flexibility" name="climber_flexibility" min="0" max="1"
+                                step="0.1">
                         </div>
                     </div>
                     <div class="form-actions">
@@ -288,7 +196,8 @@
                     </div>
                 </form>
                 <div class="output-section" id="output-extract-features" style="display: none;">
-                    <h3>Output <span class="validation-result pending" id="validation-extract-features">Pending</span></h3>
+                    <h3>Output <span class="validation-result pending" id="validation-extract-features">Pending</span>
+                    </h3>
                     <div id="result-extract-features"></div>
                     <div class="log-output" id="log-extract-features"></div>
                 </div>
@@ -322,7 +231,7 @@
             const outputEl = document.getElementById(`output-${step}`);
             const resultEl = document.getElementById(`result-${step}`);
             const logEl = document.getElementById(`log-${step}`);
-            
+
             if (outputEl) outputEl.style.display = 'block';
             if (resultEl) {
                 resultEl.innerHTML = `<div class="json-viewer">${formatJSON(data)}</div>`;
@@ -346,7 +255,7 @@
             const interval = parseFloat(formData.get('interval'));
 
             updateStatus('extract-frames', 'Uploading and processing...');
-            
+
             try {
                 // First upload video if it's a file
                 let videoPath = videoFile.name;
@@ -389,9 +298,9 @@
         document.getElementById('form-detect-holds').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            
+
             updateStatus('detect-holds', 'Processing...');
-            
+
             try {
                 const response = await fetch('/api/test/detect-holds', {
                     method: 'POST',
@@ -424,9 +333,9 @@
         document.getElementById('form-estimate-wall-angle').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            
+
             updateStatus('estimate-wall-angle', 'Processing...');
-            
+
             try {
                 const holdCentersText = formData.get('hold_centers');
                 let holdCenters = null;
@@ -462,9 +371,9 @@
         document.getElementById('form-estimate-pose').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            
+
             updateStatus('estimate-pose', 'Processing...');
-            
+
             try {
                 const response = await fetch('/api/test/estimate-pose', {
                     method: 'POST',
@@ -493,9 +402,9 @@
         document.getElementById('form-extract-features').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            
+
             updateStatus('extract-features', 'Processing...');
-            
+
             try {
                 const response = await fetch('/api/test/extract-features', {
                     method: 'POST',
@@ -528,4 +437,3 @@
 </body>
 
 </html>
-

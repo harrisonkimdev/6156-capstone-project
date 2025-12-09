@@ -1,203 +1,209 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="utf-8">
-    <title>Model Training</title>
-    <link rel="stylesheet" href="/static/app.css">
+  <meta charset="utf-8">
+  <title>Model Training - BetaMove</title>
+  <link rel="stylesheet" href="/static/app.css">
 </head>
+
 <body>
-<header class="topnav">
-  <div class="inner">
-    <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png" alt="BetaMove logo"><span>BetaMove</span></a>
-    <nav>
-      <a href="/">Pipeline</a>
-      <a href="/training" class="active">Training</a>
-      <a href="/testing">Testing</a>
-    </nav>
-  </div>
-</header>
-<main class="container">
+  <header class="topnav">
+    <div class="inner">
+      <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+          alt="BetaMove logo"><span>BetaMove</span></a>
+      <nav>
+        <a href="/">Pipeline</a>
+        <a href="/training" class="active">Training</a>
+        <a href="/testing">Testing</a>
+        <span style="color: #666; margin: 0 12px;">|</span>
+        <a href="/detection">Detection Model Training</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container">
     <section class="card">
-        <h1 class="title">Model Training</h1>
-        <p class="subtitle">Upload features and start an XGBoost training job.</p>
-        <form id="train-form" class="form">
-            <div class="form-row">
-                <label for="features_file">Upload features (.json)</label>
-                <input type="file" id="features_file" name="file" accept="application/json" required>
-                <p class="hint">Expected format: array of feature rows (JSON).</p>
-            </div>
-            <div class="form-row inline">
-                <div>
-                    <label for="task">Task</label>
-                    <select id="task" name="task">
-                        <option value="classification" selected>classification</option>
-                        <option value="regression">regression</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="label_column">Label column</label>
-                    <input type="text" id="label_column" name="label_column" value="detection_score">
-                </div>
-            </div>
-            <div class="form-row inline">
-                <div>
-                    <label for="label_threshold">Label threshold</label>
-                    <input type="number" id="label_threshold" name="label_threshold" step="0.05" value="0.6">
-                </div>
-                <div>
-                    <label for="test_size">Test size</label>
-                    <input type="number" id="test_size" name="test_size" step="0.05" value="0.2">
-                </div>
-            </div>
-            <div class="form-row">
-                <label for="model_out">Model output path</label>
-                <input type="text" id="model_out" name="model_out" value="models/xgb_pose.json">
-            </div>
-            <div class="form-actions">
-                <button id="start" type="submit">Start training</button>
-                <span id="train-status" class="status"></span>
-            </div>
-        </form>
+      <h1 class="title">Model Training</h1>
+      <p class="subtitle">Upload features and start an XGBoost training job.</p>
+      <form id="train-form" class="form">
+        <div class="form-row">
+          <label for="features_file">Upload features (.json)</label>
+          <input type="file" id="features_file" name="file" accept="application/json" required>
+          <p class="hint">Expected format: array of feature rows (JSON).</p>
+        </div>
+        <div class="form-row inline">
+          <div>
+            <label for="task">Task</label>
+            <select id="task" name="task">
+              <option value="classification" selected>classification</option>
+              <option value="regression">regression</option>
+            </select>
+          </div>
+          <div>
+            <label for="label_column">Label column</label>
+            <input type="text" id="label_column" name="label_column" value="detection_score">
+          </div>
+        </div>
+        <div class="form-row inline">
+          <div>
+            <label for="label_threshold">Label threshold</label>
+            <input type="number" id="label_threshold" name="label_threshold" step="0.05" value="0.6">
+          </div>
+          <div>
+            <label for="test_size">Test size</label>
+            <input type="number" id="test_size" name="test_size" step="0.05" value="0.2">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="model_out">Model output path</label>
+          <input type="text" id="model_out" name="model_out" value="models/xgb_pose.json">
+        </div>
+        <div class="form-actions">
+          <button id="start" type="submit">Start training</button>
+          <span id="train-status" class="status"></span>
+        </div>
+      </form>
     </section>
 
     <section class="card">
-        <div class="card-header">
-            <h2>Training Jobs</h2>
-            <button id="refresh" type="button">Refresh</button>
-        </div>
-        <div class="table-wrapper">
-            <table id="jobs-table">
-                <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Model</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for job in jobs %}
-                <tr data-job-id="{{ job.id }}">
-                    <td>{{ job.id }}</td>
-                    <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
-                    <td>{{ job.created_at }}</td>
-                    <td>{{ job.model_path or "—" }}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <p class="hint">Select a job to view metrics and logs.</p>
+      <div class="card-header">
+        <h2>Training Jobs</h2>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="jobs-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Model</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in jobs %}
+            <tr data-job-id="{{ job.id }}">
+              <td>{{ job.id }}</td>
+              <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+              <td>{{ job.created_at }}</td>
+              <td>{{ job.model_path or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">Select a job to view metrics and logs.</p>
     </section>
 
     <section class="card">
-        <div class="card-header">
-            <h2>Result</h2>
-            <span id="result-title">No job selected</span>
-        </div>
-        <pre id="result-output" class="log-output"></pre>
+      <div class="card-header">
+        <h2>Result</h2>
+        <span id="result-title">No job selected</span>
+      </div>
+      <pre id="result-output" class="log-output"></pre>
     </section>
-</main>
+  </main>
 
-<script>
-const form = document.getElementById('train-form');
-const statusEl = document.getElementById('train-status');
-const jobsTableBody = document.querySelector('#jobs-table tbody');
-const refreshBtn = document.getElementById('refresh');
-const resultTitle = document.getElementById('result-title');
-const resultOutput = document.getElementById('result-output');
-const featuresInput = document.getElementById('features_file');
-let selectedJobId = null;
+  <script>
+    const form = document.getElementById('train-form');
+    const statusEl = document.getElementById('train-status');
+    const jobsTableBody = document.querySelector('#jobs-table tbody');
+    const refreshBtn = document.getElementById('refresh');
+    const resultTitle = document.getElementById('result-title');
+    const resultOutput = document.getElementById('result-output');
+    const featuresInput = document.getElementById('features_file');
+    let selectedJobId = null;
 
-async function uploadFeatures() {
-  if (!featuresInput.files || featuresInput.files.length === 0) {
-    throw new Error('Please select a features JSON file.');
-  }
-  const formData = new FormData();
-  formData.append('file', featuresInput.files[0]);
-  const resp = await fetch('/api/train/upload', { method: 'POST', body: formData });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || 'Upload failed');
-  }
-  return resp.json();
-}
+    async function uploadFeatures() {
+      if (!featuresInput.files || featuresInput.files.length === 0) {
+        throw new Error('Please select a features JSON file.');
+      }
+      const formData = new FormData();
+      formData.append('file', featuresInput.files[0]);
+      const resp = await fetch('/api/train/upload', { method: 'POST', body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Upload failed');
+      }
+      return resp.json();
+    }
 
-async function startTraining(params) {
-  const resp = await fetch('/api/train', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || 'Training start failed');
-  }
-  return resp.json();
-}
+    async function startTraining(params) {
+      const resp = await fetch('/api/train', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Training start failed');
+      }
+      return resp.json();
+    }
 
-async function fetchJobs() {
-  const resp = await fetch('/api/train/jobs');
-  if (!resp.ok) throw new Error('Failed to fetch jobs');
-  return resp.json();
-}
+    async function fetchJobs() {
+      const resp = await fetch('/api/train/jobs');
+      if (!resp.ok) throw new Error('Failed to fetch jobs');
+      return resp.json();
+    }
 
-function renderJobs(jobs) {
-  jobsTableBody.innerHTML = '';
-  jobs.forEach(job => {
-    const tr = document.createElement('tr');
-    tr.dataset.jobId = job.id;
-    tr.innerHTML = `
+    function renderJobs(jobs) {
+      jobsTableBody.innerHTML = '';
+      jobs.forEach(job => {
+        const tr = document.createElement('tr');
+        tr.dataset.jobId = job.id;
+        tr.innerHTML = `
       <td>${job.id}</td>
       <td class="status-cell"><span class="badge badge-${job.status}">${job.status}</span></td>
       <td>${job.created_at}</td>
       <td>${job.model_path || '—'}</td>
     `;
-    if (selectedJobId === job.id) tr.classList.add('selected');
-    tr.addEventListener('click', () => { selectedJobId = job.id; loadJob(job.id); renderJobs(jobs); });
-    jobsTableBody.appendChild(tr);
-  });
-}
+        if (selectedJobId === job.id) tr.classList.add('selected');
+        tr.addEventListener('click', () => { selectedJobId = job.id; loadJob(job.id); renderJobs(jobs); });
+        jobsTableBody.appendChild(tr);
+      });
+    }
 
-async function refresh() {
-  try {
-    const jobs = await fetchJobs();
-    renderJobs(jobs);
-    if (selectedJobId) await loadJob(selectedJobId);
-  } catch (err) { console.error(err); }
-}
+    async function refresh() {
+      try {
+        const jobs = await fetchJobs();
+        renderJobs(jobs);
+        if (selectedJobId) await loadJob(selectedJobId);
+      } catch (err) { console.error(err); }
+    }
 
-async function loadJob(id) {
-  const resp = await fetch(`/api/train/jobs/${id}`);
-  if (!resp.ok) { resultTitle.textContent = 'Unable to load job'; resultOutput.textContent = ''; return; }
-  const data = await resp.json();
-  resultTitle.textContent = `Job ${data.id} (${data.status})`;
-  const pretty = JSON.stringify({ metrics: data.metrics, model_path: data.model_path, error: data.error, logs: data.logs }, null, 2);
-  resultOutput.textContent = pretty;
-}
+    async function loadJob(id) {
+      const resp = await fetch(`/api/train/jobs/${id}`);
+      if (!resp.ok) { resultTitle.textContent = 'Unable to load job'; resultOutput.textContent = ''; return; }
+      const data = await resp.json();
+      resultTitle.textContent = `Job ${data.id} (${data.status})`;
+      const pretty = JSON.stringify({ metrics: data.metrics, model_path: data.model_path, error: data.error, logs: data.logs }, null, 2);
+      resultOutput.textContent = pretty;
+    }
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  statusEl.textContent = 'Uploading features…';
-  try {
-    const upload = await uploadFeatures();
-    const params = {
-      features_path: upload.features_path,
-      task: document.getElementById('task').value,
-      label_column: document.getElementById('label_column').value || 'detection_score',
-      label_threshold: parseFloat(document.getElementById('label_threshold').value || '0.6'),
-      test_size: parseFloat(document.getElementById('test_size').value || '0.2'),
-      model_out: document.getElementById('model_out').value || 'models/xgb_pose.json',
-    };
-    statusEl.textContent = 'Starting training…';
-    const job = await startTraining(params);
-    selectedJobId = job.id;
-    statusEl.textContent = `Started training ${job.id}`;
-    await refresh();
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-});
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = 'Uploading features…';
+      try {
+        const upload = await uploadFeatures();
+        const params = {
+          features_path: upload.features_path,
+          task: document.getElementById('task').value,
+          label_column: document.getElementById('label_column').value || 'detection_score',
+          label_threshold: parseFloat(document.getElementById('label_threshold').value || '0.6'),
+          test_size: parseFloat(document.getElementById('test_size').value || '0.2'),
+          model_out: document.getElementById('model_out').value || 'models/xgb_pose.json',
+        };
+        statusEl.textContent = 'Starting training…';
+        const job = await startTraining(params);
+        selectedJobId = job.id;
+        statusEl.textContent = `Started training ${job.id}`;
+        await refresh();
+      } catch (err) {
+        statusEl.textContent = err.message;
+      }
+    });
 
-refreshBtn.addEventListener('click', refresh);
-setInterval(refresh, 5000);
-refresh();
-</script>
+    refreshBtn.addEventListener('click', refresh);
+    setInterval(refresh, 5000);
+    refresh();
+  </script>
 </body>
+
 </html>
