@@ -613,9 +613,9 @@ function updateLayoutForAspectRatio() {
 function updatePreviouslySelectedFrames() {
   const currentIndex = frameSelectionState.currentIndex;
 
-  // Get the most recent previously selected frame
+  // Get the most recent previously selected frame (including current frame)
   const previousSelectedFrames = frameSelectionState.frames
-    .slice(0, currentIndex)
+    .slice(0, currentIndex + 1)
     .filter((f) => frameSelectionState.selectedFrames.has(f.filename));
 
   const lastSelectedFrame = previousSelectedFrames.length > 0
@@ -714,12 +714,6 @@ async function selectCurrentFrame() {
 
     frameSelectionState.selectedFrames.add(frame.filename);
     document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
-    
-    // Move to next frame automatically after selection
-    if (frameSelectionState.currentIndex < frameSelectionState.frames.length - 1) {
-      frameSelectionState.currentIndex++;
-    }
-    
     updateFramePreview();
 
   } catch (error) {
