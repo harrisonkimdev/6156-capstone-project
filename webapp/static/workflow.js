@@ -16,6 +16,25 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSessions();
   loadTrainingJobs();
 
+  // Initialize pipeline mode UI on page load
+  const pipelineMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
+  const frameSelectionUI = document.getElementById('frame-selection-ui');
+  const step2 = document.getElementById('step-2');
+  const step3 = document.getElementById('step-3');
+  const step4 = document.getElementById('step-4');
+
+  if (pipelineMode === 'frame_selection') {
+    frameSelectionUI.style.display = 'block';
+    step2.style.display = 'none';
+    step3.style.display = 'none';
+    step4.style.display = 'none';
+  } else {
+    frameSelectionUI.style.display = 'none';
+    step2.style.display = 'block';
+    step3.style.display = 'block';
+    step4.style.display = 'block';
+  }
+
   // Poll for updates every 5 seconds
   setInterval(() => {
     loadSessions();
@@ -43,6 +62,8 @@ function setupEventListeners() {
   document.getElementById('frame-slider')?.addEventListener('input', handleFrameSliderChange);
   document.getElementById('btn-save-to-pool')?.addEventListener('click', saveToTrainingPool);
   document.getElementById('btn-train-frame-selector')?.addEventListener('click', trainFrameSelector);
+  document.getElementById('btn-view-all')?.addEventListener('click', () => setViewMode('all'));
+  document.getElementById('btn-view-selected')?.addEventListener('click', () => setViewMode('selected'));
 
   // Keyboard shortcuts for frame selection
   document.addEventListener('keydown', handleKeyboardShortcuts);
@@ -476,6 +497,7 @@ let frameSelectionState = {
   frames: [],
   currentIndex: 0,
   selectedFrames: new Set(),
+  viewMode: 'all', // 'all' or 'selected'
 };
 
 /**
@@ -496,8 +518,14 @@ function handlePipelineModeChange(event) {
   }
 
   if (mode === 'frame_selection') {
-    // Show frame selection UI, hide hold detection steps
-    frameSelectionUI.style.display = 'block';
+    // Show frame selection UI container, hide hold detection steps
+    // But only show content if frames are loaded
+    if (frameSelectionState.frames.length > 0) {
+      frameSelectionUI.style.display = 'block';
+    } else {
+      // Show container but hide the frame viewer content
+      frameSelectionUI.style.display = 'none';
+    }
     step2.style.display = 'none';
     step3.style.display = 'none';
     step4.style.display = 'none';
@@ -533,12 +561,22 @@ async function loadFramesForSelection(uploadId, videoName) {
 
     // Update UI
     document.getElementById('frame-total').textContent = data.frames.length;
-    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    updateSelectedFramesCounter();
     document.getElementById('frame-slider').max = data.frames.length - 1;
 
     // Load first frame
     frameAspectRatio = null; // Reset aspect ratio detection
     updateFramePreview();
+
+    // Update previously selected frames to show auto-selected first frame
+    updatePreviouslySelectedFrames();
+
+    // Show frame selection UI now that frames are loaded
+    const frameSelectionUI = document.getElementById('frame-selection-ui');
+    const currentMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
+    if (currentMode === 'frame_selection') {
+      frameSelectionUI.style.display = 'block';
+    }
 
   } catch (error) {
     console.error('Failed to load frames:', error);
@@ -573,6 +611,9 @@ function updateFramePreview() {
 
   // Update previously selected frames display
   updatePreviouslySelectedFrames();
+
+  // Update frame counter display
+  updateFrameCounterDisplay();
 
   // Determine aspect ratio from first frame
   if (frameAspectRatio === null) {
@@ -615,39 +656,44 @@ function updateLayoutForAspectRatio() {
  * Update previously selected frames display
  */
 function updatePreviouslySelectedFrames() {
-  const currentIndex = frameSelectionState.currentIndex;
+  // Get the first selected frame
+  const selectedFrames = frameSelectionState.frames.filter(f =>
+    frameSelectionState.selectedFrames.has(f.filename)
+  );
 
-  // Get the most recent previously selected frame (including current frame)
-  const previousSelectedFrames = frameSelectionState.frames
-    .slice(0, currentIndex + 1)
-    .filter((f) => frameSelectionState.selectedFrames.has(f.filename));
+  const firstSelectedFrame = selectedFrames.length > 0 ? selectedFrames[0] : null;
 
-  const lastSelectedFrame = previousSelectedFrames.length > 0
-    ? previousSelectedFrames[previousSelectedFrames.length - 1]
-    : null;
+  // Update both layouts regardless of aspect ratio
+  const prevImgVertical = document.getElementById('frame-preview-prev-vertical');
+  const prevImgHorizontal = document.getElementById('frame-preview-prev-horizontal');
 
-  if (frameAspectRatio === 'vertical') {
-    const prevImg = document.getElementById('frame-preview-prev-vertical');
-    if (prevImg && lastSelectedFrame) {
-      prevImg.src = lastSelectedFrame.path;
-    } else if (prevImg) {
-      prevImg.src = '';
-    }
+  if (firstSelectedFrame) {
+    if (prevImgVertical) prevImgVertical.src = firstSelectedFrame.path;
+    if (prevImgHorizontal) prevImgHorizontal.src = firstSelectedFrame.path;
   } else {
-    const prevImg = document.getElementById('frame-preview-prev-horizontal');
-    if (prevImg && lastSelectedFrame) {
-      prevImg.src = lastSelectedFrame.path;
-    } else if (prevImg) {
-      prevImg.src = '';
-    }
+    if (prevImgVertical) prevImgVertical.src = '';
+    if (prevImgHorizontal) prevImgHorizontal.src = '';
   }
-}
-
-/**
+}/**
  * Handle frame slider change
  */
 function handleFrameSliderChange(event) {
-  frameSelectionState.currentIndex = parseInt(event.target.value);
+  const sliderValue = parseInt(event.target.value);
+
+  if (frameSelectionState.viewMode === 'selected') {
+    // In selected mode, slider represents index in selected frames array
+    const selectedFrames = getSelectedFramesArray();
+    if (sliderValue >= 0 && sliderValue < selectedFrames.length) {
+      const selectedFrame = selectedFrames[sliderValue];
+      frameSelectionState.currentIndex = frameSelectionState.frames.findIndex(
+        f => f.filename === selectedFrame.filename
+      );
+    }
+  } else {
+    // In all mode, slider represents index in all frames
+    frameSelectionState.currentIndex = sliderValue;
+  }
+
   updateFramePreview();
 }
 
@@ -690,10 +736,28 @@ function handleKeyboardShortcuts(event) {
  * Navigate to next/previous frame
  */
 function navigateFrame(direction) {
-  const newIndex = frameSelectionState.currentIndex + direction;
-  if (newIndex >= 0 && newIndex < frameSelectionState.frames.length) {
-    frameSelectionState.currentIndex = newIndex;
-    updateFramePreview();
+  if (frameSelectionState.viewMode === 'selected') {
+    // In selected mode, navigate only through selected frames
+    const selectedFrames = getSelectedFramesArray();
+    if (selectedFrames.length === 0) return;
+
+    const currentFrame = frameSelectionState.frames[frameSelectionState.currentIndex];
+    const currentSelectedIndex = selectedFrames.findIndex(f => f.filename === currentFrame.filename);
+
+    const newSelectedIndex = currentSelectedIndex + direction;
+    if (newSelectedIndex >= 0 && newSelectedIndex < selectedFrames.length) {
+      const newFrame = selectedFrames[newSelectedIndex];
+      frameSelectionState.currentIndex = frameSelectionState.frames.findIndex(f => f.filename === newFrame.filename);
+      updateFramePreview();
+      updateSliderForViewMode();
+    }
+  } else {
+    // In all frames mode, navigate normally
+    const newIndex = frameSelectionState.currentIndex + direction;
+    if (newIndex >= 0 && newIndex < frameSelectionState.frames.length) {
+      frameSelectionState.currentIndex = newIndex;
+      updateFramePreview();
+    }
   }
 }
 
@@ -717,7 +781,7 @@ async function selectCurrentFrame() {
     }
 
     frameSelectionState.selectedFrames.add(frame.filename);
-    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    updateSelectedFramesCounter();
     updateFramePreview();
 
   } catch (error) {
@@ -745,7 +809,7 @@ async function deselectCurrentFrame() {
     }
 
     frameSelectionState.selectedFrames.delete(frame.filename);
-    document.getElementById('frame-selected-count').textContent = frameSelectionState.selectedFrames.size;
+    updateSelectedFramesCounter();
     updateFramePreview();
 
   } catch (error) {
@@ -897,6 +961,7 @@ async function clearAllData() {
       frames: [],
       currentIndex: 0,
       selectedFrames: new Set(),
+      viewMode: 'all',
     };
 
     // Reload page
@@ -905,5 +970,106 @@ async function clearAllData() {
   } catch (error) {
     console.error('Failed to clear data:', error);
     alert(`❌ Error: ${error.message}`);
+  }
+}
+
+// ========== View Mode Helpers ==========
+
+/**
+ * Get array of selected frames in order
+ */
+function getSelectedFramesArray() {
+  return frameSelectionState.frames.filter(f =>
+    frameSelectionState.selectedFrames.has(f.filename)
+  );
+}
+
+/**
+ * Update selected frames counter display
+ */
+function updateSelectedFramesCounter() {
+  const count = frameSelectionState.selectedFrames.size;
+  document.getElementById('frame-selected-count').textContent = count;
+  document.getElementById('selected-frames-counter').textContent =
+    `${count} selected`;
+}
+
+/**
+ * Set view mode (all or selected)
+ */
+function setViewMode(mode) {
+  frameSelectionState.viewMode = mode;
+
+  // Update button styles
+  const btnAll = document.getElementById('btn-view-all');
+  const btnSelected = document.getElementById('btn-view-selected');
+
+  if (mode === 'all') {
+    btnAll.style.background = '#0066cc';
+    btnAll.style.color = 'white';
+    btnSelected.style.background = '#333';
+    btnSelected.style.color = '#aaa';
+  } else {
+    btnAll.style.background = '#333';
+    btnAll.style.color = '#aaa';
+    btnSelected.style.background = '#ff9900';
+    btnSelected.style.color = 'white';
+
+    // If no frames selected, show alert and stay in all mode
+    if (frameSelectionState.selectedFrames.size === 0) {
+      alert('No frames selected yet. Please select at least one frame.');
+      setViewMode('all');
+      return;
+    }
+
+    // Jump to first selected frame
+    const selectedFrames = getSelectedFramesArray();
+    if (selectedFrames.length > 0) {
+      frameSelectionState.currentIndex = frameSelectionState.frames.findIndex(
+        f => f.filename === selectedFrames[0].filename
+      );
+    }
+  }
+
+  updateFramePreview();
+  updateSliderForViewMode();
+}
+
+/**
+ * Update slider for current view mode
+ */
+function updateSliderForViewMode() {
+  const slider = document.getElementById('frame-slider');
+
+  if (frameSelectionState.viewMode === 'selected') {
+    const selectedFrames = getSelectedFramesArray();
+    const currentFrame = frameSelectionState.frames[frameSelectionState.currentIndex];
+    const selectedIndex = selectedFrames.findIndex(f => f.filename === currentFrame.filename);
+
+    slider.max = Math.max(0, selectedFrames.length - 1);
+    slider.value = selectedIndex;
+  } else {
+    slider.max = Math.max(0, frameSelectionState.frames.length - 1);
+    slider.value = frameSelectionState.currentIndex;
+  }
+}
+
+/**
+ * Update frame counter display (e.g., "3 / 120" or "2 / 5 selected")
+ */
+function updateFrameCounterDisplay() {
+  const currentElem = document.getElementById('frame-current');
+  const totalElem = document.getElementById('frame-total');
+
+  if (frameSelectionState.viewMode === 'selected') {
+    const selectedFrames = getSelectedFramesArray();
+    const currentFrame = frameSelectionState.frames[frameSelectionState.currentIndex];
+    const selectedIndex = selectedFrames.findIndex(f => f.filename === currentFrame.filename);
+
+    currentElem.textContent = selectedIndex + 1;
+    totalElem.textContent = selectedFrames.length;
+  } else {
+    currentElem.textContent = frameSelectionState.currentIndex + 1;
+    totalElem.textContent = frameSelectionState.frames.length;
   }
 }
