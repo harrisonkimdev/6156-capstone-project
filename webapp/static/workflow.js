@@ -8,6 +8,7 @@
 let currentFrameDir = null;
 let currentSessionId = null;
 let currentTrainingJobId = null;
+let frameAspectRatio = null; // 'vertical' or 'horizontal'
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -31,6 +32,7 @@ function setupEventListeners() {
   document.getElementById('btn-create-session').addEventListener('click', createSession);
   document.getElementById('btn-start-training').addEventListener('click', startTraining);
   document.getElementById('btn-upload-gcs').addEventListener('click', uploadToGCS);
+  document.getElementById('btn-clear-data')?.addEventListener('click', clearAllData);
 
   // Pipeline mode toggle
   document.querySelectorAll('input[name="pipeline-mode"]').forEach(radio => {
@@ -482,18 +484,27 @@ function handlePipelineModeChange(event) {
   const step3 = document.getElementById('step-3');
   const step4 = document.getElementById('step-4');
 
+  console.log(`[Pipeline Mode] Changed to: ${mode}`);
+
+  if (!frameSelectionUI || !step2 || !step3 || !step4) {
+    console.error('[Pipeline Mode] Missing UI elements');
+    return;
+  }
+
   if (mode === 'frame_selection') {
     // Show frame selection UI, hide hold detection steps
     frameSelectionUI.style.display = 'block';
     step2.style.display = 'none';
     step3.style.display = 'none';
     step4.style.display = 'none';
+    console.log('[Pipeline Mode] Showing frame selection UI');
   } else {
     // Hide frame selection UI, show hold detection steps
     frameSelectionUI.style.display = 'none';
     step2.style.display = 'block';
     step3.style.display = 'block';
     step4.style.display = 'block';
+    console.log('[Pipeline Mode] Showing hold detection steps');
   }
 }
 
@@ -522,6 +533,7 @@ async function loadFramesForSelection(uploadId, videoName) {
     document.getElementById('frame-slider').max = data.frames.length - 1;
 
     // Load first frame
+    frameAspectRatio = null; // Reset aspect ratio detection
     updateFramePreview();
 
   } catch (error) {
@@ -537,7 +549,13 @@ function updateFramePreview() {
   const frame = frameSelectionState.frames[frameSelectionState.currentIndex];
   if (!frame) return;
 
+  // Update current frame in both layouts
   document.getElementById('frame-preview').src = frame.path;
+  const currentHorizontalImg = document.getElementById('frame-preview-current-horizontal');
+  if (currentHorizontalImg) {
+    currentHorizontalImg.src = frame.path;
+  }
+
   document.getElementById('frame-current').textContent = frameSelectionState.currentIndex + 1;
   document.getElementById('frame-slider').value = frameSelectionState.currentIndex;
 
@@ -547,6 +565,77 @@ function updateFramePreview() {
     badge.style.display = 'block';
   } else {
     badge.style.display = 'none';
+  }
+
+  // Update previously selected frames display
+  updatePreviouslySelectedFrames();
+  
+  // Determine aspect ratio from first frame
+  if (frameAspectRatio === null) {
+    detectAspectRatio(frame);
+  }
+}
+
+/**
+ * Detect aspect ratio from image
+ */
+function detectAspectRatio(frame) {
+  const img = new Image();
+  img.onload = () => {
+    frameAspectRatio = img.width >= img.height ? 'horizontal' : 'vertical';
+    console.log(`[Frame Aspect] Detected: ${frameAspectRatio} (${img.width}x${img.height})`);
+    updateLayoutForAspectRatio();
+  };
+  img.src = frame.path;
+}
+
+/**
+ * Update layout based on detected aspect ratio
+ */
+function updateLayoutForAspectRatio() {
+  const verticalLayout = document.getElementById('vertical-layout');
+  const horizontalLayout = document.getElementById('horizontal-layout');
+  
+  if (!verticalLayout || !horizontalLayout) return;
+  
+  if (frameAspectRatio === 'vertical') {
+    verticalLayout.style.display = 'grid';
+    horizontalLayout.style.display = 'none';
+  } else {
+    verticalLayout.style.display = 'none';
+    horizontalLayout.style.display = 'block';
+  }
+}
+
+/**
+ * Update previously selected frames display
+ */
+function updatePreviouslySelectedFrames() {
+  const currentIndex = frameSelectionState.currentIndex;
+  
+  // Get the most recent previously selected frame
+  const previousSelectedFrames = frameSelectionState.frames
+    .slice(0, currentIndex)
+    .filter((f) => frameSelectionState.selectedFrames.has(f.filename));
+  
+  const lastSelectedFrame = previousSelectedFrames.length > 0 
+    ? previousSelectedFrames[previousSelectedFrames.length - 1]
+    : null;
+
+  if (frameAspectRatio === 'vertical') {
+    const prevImg = document.getElementById('frame-preview-prev-vertical');
+    if (prevImg && lastSelectedFrame) {
+      prevImg.src = lastSelectedFrame.path;
+    } else if (prevImg) {
+      prevImg.src = '';
+    }
+  } else {
+    const prevImg = document.getElementById('frame-preview-prev-horizontal');
+    if (prevImg && lastSelectedFrame) {
+      prevImg.src = lastSelectedFrame.path;
+    } else if (prevImg) {
+      prevImg.src = '';
+    }
   }
 }
 
@@ -695,5 +784,50 @@ async function trainFrameSelector() {
   } catch (error) {
     console.error('Training failed:', error);
     showStatus('step-1', `Training failed: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Clear all data (uploads and workflow_frames)
+ */
+async function clearAllData() {
+  if (!confirm('⚠️ This will delete ALL uploads and workflow data. Continue?')) {
+    return;
+  }
+
+  if (!confirm('🚨 Are you REALLY sure? This cannot be undone!')) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/system/clear', {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to clear data');
+    }
+
+    const data = await response.json();
+    alert(`✓ Data cleared successfully!\nCleared: ${data.cleared_directories.join(', ')}`);
+
+    // Reset UI state
+    currentFrameDir = null;
+    currentSessionId = null;
+    currentTrainingJobId = null;
+    frameSelectionState = {
+      uploadId: null,
+      videoName: null,
+      frames: [],
+      currentIndex: 0,
+      selectedFrames: new Set(),
+    };
+
+    // Reload page
+    location.reload();
+
+  } catch (error) {
+    console.error('Failed to clear data:', error);
+    alert(`❌ Error: ${error.message}`);
   }
 }

@@ -241,7 +241,13 @@
   <nav style="background: #1a1a1a; padding: 15px 20px; margin-bottom: 20px;">
     <div style="max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
       <h1 style="margin: 0; color: #fff; font-size: 20px;">🧗 BetaMove - Hold Labeling Workflow</h1>
-      <a href="/" style="color: #0066cc; text-decoration: none;">← Back to Home</a>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button id="btn-clear-data"
+          style="padding: 8px 12px; background: #cc3333; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+          🔄 Clear Data
+        </button>
+        <a href="/" style="color: #0066cc; text-decoration: none;">← Back to Home</a>
+      </div>
     </div>
   </nav>
 
@@ -302,14 +308,54 @@
                 <span style="color: #aaa;">Selected: <span id="frame-selected-count"
                     style="color: #0066cc; font-weight: bold;">0</span></span>
               </div>
-              <div
-                style="position: relative; background: #000; border-radius: 4px; overflow: hidden; aspect-ratio: 16/9;">
-                <img id="frame-preview" src="" style="width: 100%; height: 100%; object-fit: contain;">
-                <div id="frame-selected-badge"
-                  style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
-                  ✓ SELECTED
+
+              <!-- Frame comparison view (layout adjusts based on aspect ratio) -->
+              <div id="frame-comparison-container" style="margin-bottom: 10px;">
+                <!-- Vertical layout (side-by-side) for vertical videos -->
+                <div id="vertical-layout" style="display: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <!-- Previously selected frame -->
+                  <div style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden;">
+                    <div style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">Previously Selected</div>
+                    <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
+                      <img id="frame-preview-prev-vertical" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                    </div>
+                  </div>
+                  <!-- Current frame -->
+                  <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
+                    <div style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">Current</div>
+                    <div style="aspect-ratio: 9/16; display: flex; align-items: center; justify-content: center;">
+                      <img id="frame-preview" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                      <div id="frame-selected-badge"
+                        style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
+                        ✓ SELECTED
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Horizontal layout (stacked) for horizontal videos -->
+                <div id="horizontal-layout" style="display: none;">
+                  <!-- Previously selected frame -->
+                  <div style="position: relative; background: #1a1a1a; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+                    <div style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">Previously Selected</div>
+                    <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
+                      <img id="frame-preview-prev-horizontal" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                    </div>
+                  </div>
+                  <!-- Current frame -->
+                  <div style="position: relative; background: #000; border-radius: 4px; overflow: hidden;">
+                    <div style="color: #888; font-size: 11px; padding: 8px; text-align: center; background: #2a2a2a; border-bottom: 1px solid #333;">Current</div>
+                    <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
+                      <img id="frame-preview-current-horizontal" src="" style="width: 100%; height: 100%; object-fit: contain;">
+                      <div id="frame-selected-badge"
+                        style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
+                        ✓ SELECTED
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+
               <div style="margin-top: 10px;">
                 <input type="range" id="frame-slider" min="0" max="0" value="0" style="width: 100%;">
               </div>

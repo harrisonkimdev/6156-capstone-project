@@ -460,6 +460,43 @@ async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> di
     }
 
 
+@app.post("/api/system/clear", response_class=JSONResponse)
+async def clear_data() -> dict[str, object]:
+    """Clear all uploads and workflow frames data."""
+    try:
+        cleared_dirs = []
+        
+        # Clear uploads directory
+        if UPLOAD_ROOT.exists():
+            for item in UPLOAD_ROOT.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            cleared_dirs.append("uploads")
+            LOGGER.info("Cleared uploads directory: %s", UPLOAD_ROOT)
+        
+        # Clear workflow_frames directory
+        workflow_frames_dir = ROOT_DIR / "data" / "workflow_frames"
+        if workflow_frames_dir.exists():
+            for item in workflow_frames_dir.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            cleared_dirs.append("workflow_frames")
+            LOGGER.info("Cleared workflow_frames directory: %s", workflow_frames_dir)
+        
+        return {
+            "status": "success",
+            "message": f"Cleared: {', '.join(cleared_dirs)}",
+            "cleared_directories": cleared_dirs,
+        }
+    except Exception as e:
+        LOGGER.exception("Failed to clear data")
+        raise HTTPException(status_code=500, detail=f"Failed to clear data: {str(e)}")
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
