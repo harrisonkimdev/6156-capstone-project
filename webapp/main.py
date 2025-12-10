@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import shutil
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -49,6 +50,21 @@ MODELS_3D_DIR = ROOT_DIR / "data" / "3d_models"
 def _ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _is_feature_enabled(env_var: str, default: bool = False) -> bool:
+    """Check if a feature is enabled via environment variable.
+    
+    Args:
+        env_var: Environment variable name to check
+        default: Default value if environment variable is not set
+    
+    Returns:
+        True if feature is enabled, False otherwise
+    """
+    import os
+    value = os.getenv(env_var, str(default)).lower()
+    return value in ('true', '1', 'yes')
 
 
 def _save_uploaded_file(video: UploadFile) -> tuple[Path, str]:
@@ -226,6 +242,20 @@ async def upload_video(video: UploadFile = File(...)) -> dict[str, object]:
     return payload
 
 
+def _get_storage_dir(upload_id: str, video_name: str | None = None) -> Path:
+    """Get storage directory path from upload_id.
+    
+    Args:
+        upload_id: Storage directory name (e.g., "IMG_3708_251209_125416PM")
+        video_name: Optional video name (for backward compatibility)
+    
+    Returns:
+        Path to storage directory
+    """
+    # upload_id is now the storage_dir_name (e.g., "IMG_3708_251209_125416PM")
+    return ROOT_DIR / "data" / upload_id
+
+
 async def run_frame_selector_inference(upload_id: str, video_name: str) -> None:
     """Run frame selector model inference if model exists and save predictions to selected_frames/."""
     import sys
@@ -236,7 +266,7 @@ async def run_frame_selector_inference(upload_id: str, video_name: str) -> None:
     try:
         from pose_ai.service.frame_selector_service import predict_key_frames
         
-        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        workflow_dir = _get_storage_dir(upload_id, video_name)
         
         # Check if model checkpoint exists
         model_dir = workflow_dir / "frame_selector_output" / "checkpoints"
@@ -274,27 +304,33 @@ async def workflow_extract_frames(
     
     from pose_ai.data import extract_frames_with_motion
     
-    # Save uploaded video
-    upload_id = uuid4().hex
-    upload_dir = _ensure_directory(UPLOAD_ROOT / upload_id)
-    video_path = upload_dir / video.filename
-    
     try:
+        # Generate storage directory name: {video_filename}_{date}_{time}
+        video_filename = Path(video.filename).stem  # e.g., "IMG_3708"
+        now = datetime.now()
+        date_str = now.strftime("%y%m%d")  # YYMMDD, e.g., "251209"
+        time_str = now.strftime("%I%M%S%p")  # HHMMSSAM/PM, e.g., "125416PM"
+        storage_dir_name = f"{video_filename}_{date_str}_{time_str}"
+        
+        # Create storage directory: data/IMG_3708_251209_125416PM/
+        storage_dir = _ensure_directory(ROOT_DIR / "data" / storage_dir_name)
+        
+        # Save video file to data/videos/ directory
+        videos_dir = _ensure_directory(ROOT_DIR / "data" / "videos")
+        video_path = videos_dir / video.filename
         print(f"[FRAME EXTRACTION] Starting frame extraction for video: {video.filename}")
-        print(f"[FRAME EXTRACTION] Upload ID: {upload_id}")
+        print(f"[FRAME EXTRACTION] Storage directory: {storage_dir}")
         
         with video_path.open("wb") as f:
             shutil.copyfileobj(video.file, f)
         
         print(f"[FRAME EXTRACTION] Video saved to: {video_path}")
         
-        # Extract frames - use workflow_frames root, let extract_frames_with_motion create video folder
-        output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
-        print(f"[FRAME EXTRACTION] Output root: {output_root}")
-        
+        # Extract frames - extract_frames_with_motion creates output_root/video_stem/
+        # We want frames directly in storage_dir, so we'll move them after extraction
         result = extract_frames_with_motion(
             video_path,
-            output_root=output_root,
+            output_root=storage_dir,
             motion_threshold=5.0,  # Default value
             similarity_threshold=0.8,  # Default value
             write_manifest=True,
@@ -303,14 +339,56 @@ async def workflow_extract_frames(
             use_pose_similarity=True,
         )
         
+        # extract_frames_with_motion creates storage_dir/video_stem/, but we want storage_dir/
+        # Move all contents from storage_dir/video_stem/ to storage_dir/
+        video_stem_dir = storage_dir / video_filename
+        manifest_was_moved = False
+        if video_stem_dir.exists() and video_stem_dir != storage_dir:
+            # Check if manifest exists in video_stem_dir before moving
+            old_manifest = video_stem_dir / "manifest.json"
+            manifest_was_moved = old_manifest.exists()
+            
+            # Move all contents from video_stem_dir to storage_dir
+            for item in video_stem_dir.iterdir():
+                dest = storage_dir / item.name
+                if dest.exists():
+                    if dest.is_dir():
+                        shutil.rmtree(dest)
+                    else:
+                        dest.unlink()
+                shutil.move(str(item), str(dest))
+            # Remove empty video_stem_dir
+            try:
+                video_stem_dir.rmdir()
+            except:
+                pass
+        
+        # Update frame_directory path (should now be storage_dir/all_frames or storage_dir)
+        if (storage_dir / "all_frames").exists():
+            frame_dir = storage_dir / "all_frames"
+        else:
+            frame_dir = storage_dir
+        
+        # Update manifest_path if it was moved
+        manifest_path = result.manifest_path
+        if manifest_was_moved:
+            # Manifest was moved to storage_dir
+            new_manifest_path = storage_dir / "manifest.json"
+            if new_manifest_path.exists():
+                manifest_path = new_manifest_path
+        
         print(f"[FRAME EXTRACTION] Extraction complete! Saved {result.saved_frames} frames")
-        print(f"[FRAME EXTRACTION] Frame directory: {result.frame_directory}")
+        print(f"[FRAME EXTRACTION] Frame directory: {frame_dir}")
+        
+        # Extract upload_id and video_name from storage_dir for compatibility
+        upload_id = storage_dir_name
+        video_name = video_filename
         
         # Run inference if model exists
         try:
             await run_frame_selector_inference(
                 upload_id=upload_id,
-                video_name=Path(video.filename).stem,
+                video_name=video_name,
             )
         except Exception as e:
             LOGGER.warning(f"Frame selector inference failed (model may not exist yet): {e}")
@@ -318,9 +396,11 @@ async def workflow_extract_frames(
         
         return {
             "status": "success",
-            "frame_directory": str(result.frame_directory),
+            "frame_directory": str(frame_dir),
             "frame_count": result.saved_frames,
-            "manifest_path": str(result.manifest_path) if result.manifest_path else None,
+            "manifest_path": str(manifest_path) if manifest_path else None,
+            "upload_id": upload_id,
+            "video_name": video_name,
         }
     except Exception as e:
         LOGGER.exception("Workflow frame extraction failed")
@@ -332,6 +412,8 @@ async def workflow_extract_frames(
 @app.get("/api/workflow/extract-test-video", response_class=JSONResponse)
 async def extract_test_video() -> dict[str, object]:
     """Extract frames from hardcoded test video using motion detection (for development)."""
+    if not _is_feature_enabled("ENABLE_TEST_VIDEO_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Test video endpoints are disabled. Set ENABLE_TEST_VIDEO_ENDPOINTS=true to enable.")
     import sys
     
     SRC_DIR = ROOT_DIR / "src"
@@ -352,13 +434,15 @@ async def extract_test_video() -> dict[str, object]:
         # Use fixed output directory for test video
         upload_id = "test_video_frames"
         output_root = _ensure_directory(ROOT_DIR / "data" / "workflow_frames" / upload_id)
+        motion_threshold = 5.0  # Default value
+        similarity_threshold = 0.8  # Default value
         print(f"[TEST FRAME EXTRACTION] Output root: {output_root}")
         print(f"[TEST FRAME EXTRACTION] Motion threshold: {motion_threshold}, Similarity threshold: {similarity_threshold}")
         result = extract_frames_with_motion(
             test_video_path,
             output_root=output_root,
-            motion_threshold=5.0,  # Default value
-            similarity_threshold=0.8,  # Default value
+            motion_threshold=motion_threshold,
+            similarity_threshold=similarity_threshold,
             write_manifest=True,
             overwrite=True,
             save_all_frames=True,
@@ -384,6 +468,8 @@ async def extract_test_video() -> dict[str, object]:
 @app.get("/api/workflow/use-test-frames", response_class=JSONResponse)
 async def use_test_frames() -> dict[str, object]:
     """Use pre-extracted test frames (instant, no processing needed - dev mode)."""
+    if not _is_feature_enabled("ENABLE_TEST_VIDEO_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Test video endpoints are disabled. Set ENABLE_TEST_VIDEO_ENDPOINTS=true to enable.")
     test_frame_dir = ROOT_DIR / "data" / "test_frames" / "IMG_3571"
     
     if not test_frame_dir.exists():
@@ -409,26 +495,29 @@ async def use_test_frames() -> dict[str, object]:
 @app.get("/api/workflow/frames/{upload_id}/{video_name}", response_class=JSONResponse)
 async def get_frames_for_selection(upload_id: str, video_name: str) -> dict[str, object]:
     """Get all frames from all_frames/ directory for manual selection."""
-    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    workflow_dir = _get_storage_dir(upload_id, video_name)
     all_frames_dir = workflow_dir / "all_frames"
     human_selected_dir = workflow_dir / "human_selected_frames"
     
     if not all_frames_dir.exists():
         raise HTTPException(status_code=404, detail=f"all_frames directory not found: {all_frames_dir}")
     
-    # Get all frame files
-    frame_files = sorted(all_frames_dir.glob(f"{video_name}_frame_*.jpg"))
+    # Get all frame files (pattern may vary, try both with and without video_name prefix)
+    frame_files = sorted(all_frames_dir.glob("*.jpg"))
+    if not frame_files:
+        # Try with video_name prefix
+        frame_files = sorted(all_frames_dir.glob(f"{video_name}_frame_*.jpg"))
     
     # Get already selected frames
     selected_files = set()
     if human_selected_dir.exists():
-        selected_files = {f.name for f in human_selected_dir.glob(f"{video_name}_frame_*.jpg")}
+        selected_files = {f.name for f in human_selected_dir.glob("*.jpg")}
     
     frames = []
     for frame_path in frame_files:
         frames.append({
             "filename": frame_path.name,
-            "path": f"/repo/data/workflow_frames/{upload_id}/{video_name}/all_frames/{frame_path.name}",
+            "path": f"/repo/data/{upload_id}/all_frames/{frame_path.name}",
             "selected": frame_path.name in selected_files,
         })
     
@@ -445,7 +534,7 @@ async def get_frames_for_selection(upload_id: str, video_name: str) -> dict[str,
 @app.post("/api/workflow/frames/{upload_id}/{video_name}/select", response_class=JSONResponse)
 async def select_frame(upload_id: str, video_name: str, frame_name: str) -> dict[str, object]:
     """Copy a frame from all_frames/ to human_selected_frames/."""
-    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    workflow_dir = _get_storage_dir(upload_id, video_name)
     all_frames_dir = workflow_dir / "all_frames"
     human_selected_dir = workflow_dir / "human_selected_frames"
     
@@ -473,7 +562,7 @@ async def select_frame(upload_id: str, video_name: str, frame_name: str) -> dict
 @app.delete("/api/workflow/frames/{upload_id}/{video_name}/select/{frame_name}", response_class=JSONResponse)
 async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> dict[str, object]:
     """Remove a frame from human_selected_frames/."""
-    workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+    workflow_dir = _get_storage_dir(upload_id, video_name)
     human_selected_dir = workflow_dir / "human_selected_frames"
     
     frame_path = human_selected_dir / frame_name
@@ -502,7 +591,7 @@ async def save_to_training_pool(request: Request) -> dict[str, object]:
         if not upload_id or not video_name:
             raise HTTPException(status_code=400, detail="Missing upload_id or video_name")
         
-        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        workflow_dir = _get_storage_dir(upload_id, video_name)
         human_selected_dir = workflow_dir / "human_selected_frames"
         
         if not workflow_dir.exists():
@@ -515,8 +604,8 @@ async def save_to_training_pool(request: Request) -> dict[str, object]:
         training_pool_dir = ROOT_DIR / "data" / "training_pool"
         training_pool_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use upload_id + video_name as unique identifier
-        pool_video_dir = training_pool_dir / f"{upload_id}_{video_name}"
+        # Use upload_id as unique identifier (already includes video name and timestamp)
+        pool_video_dir = training_pool_dir / upload_id
         
         # Copy workflow directory to training pool
         if pool_video_dir.exists():
@@ -576,6 +665,436 @@ async def get_training_pool_info() -> dict[str, int]:
         return {"video_count": 0, "frame_count": 0}
 
 
+class SegmentFirstFrameRequest(BaseModel):
+    """Request to segment first frame using SAM."""
+    
+    upload_id: str = Field(..., description="Upload ID")
+    video_name: str = Field(..., description="Video name")
+    frame_filename: str = Field(..., description="First frame filename")
+
+
+async def _segment_first_frame_with_progress(
+    upload_id: str,
+    video_name: str,
+    frame_filename: str,
+    progress_callback=None,
+):
+    """Internal function to segment first frame with progress callbacks."""
+    import json
+    
+    try:
+        workflow_dir = _get_storage_dir(upload_id, video_name)
+        all_frames_dir = workflow_dir / "all_frames"
+        
+        if not all_frames_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Frames directory not found: {all_frames_dir}")
+        
+        # Find the first frame
+        frame_path = all_frames_dir / frame_filename
+        if not frame_path.exists():
+            # Try to find first frame if filename doesn't match
+            frame_files = sorted(all_frames_dir.glob("*.jpg"))
+            if not frame_files:
+                raise HTTPException(status_code=404, detail="No frame images found")
+            frame_path = frame_files[0]
+        
+        if progress_callback:
+            progress_callback({"stage": "checking_checkpoint", "message": "Checking SAM checkpoint..."})
+        
+        # Use default SAM checkpoint
+        default_checkpoint = ROOT_DIR / "models" / "sam_vit_b_01ec64.pth"
+        if not default_checkpoint.exists():
+            raise HTTPException(
+                status_code=503,
+                detail="SAM checkpoint not found. Please download: wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth -P models/"
+            )
+        
+        if progress_callback:
+            progress_callback({"stage": "initializing", "message": "Initializing SAM model..."})
+        
+        # Initialize SAM service
+        sam_service = SamService(
+            sam_checkpoint=str(default_checkpoint),
+            device="cpu",
+            cache_dir=workflow_dir / "sam_cache",
+        )
+        sam_service.initialize(default_checkpoint)
+        
+        if progress_callback:
+            progress_callback({"stage": "segmenting", "message": "Running segmentation on frame..."})
+        
+        # Segment the frame
+        segments = sam_service.segment_frame(frame_path, use_cache=True)
+        segment_dicts = [seg.to_dict() for seg in segments]
+        
+        sam_service.close()
+        
+        if progress_callback:
+            progress_callback({
+                "stage": "complete",
+                "message": f"Found {len(segments)} segments",
+                "segments": segment_dicts,
+                "segment_count": len(segments),
+            })
+        
+        LOGGER.info(f"Segmented first frame: {len(segments)} segments found")
+        
+        return {
+            "status": "success",
+            "frame_path": str(frame_path),
+            "segments": segment_dicts,
+            "segment_count": len(segments),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception("Failed to segment first frame")
+        if progress_callback:
+            progress_callback({"stage": "error", "message": f"Segmentation failed: {str(e)}"})
+        raise HTTPException(status_code=500, detail=f"Segmentation failed: {str(e)}")
+
+
+@app.post("/api/workflow/segment-first-frame", response_class=JSONResponse)
+async def segment_first_frame(request: SegmentFirstFrameRequest) -> dict[str, object]:
+    """Segment the first frame using SAM and return bounding boxes.
+    
+    This endpoint runs SAM segmentation on the first frame and returns
+    segments with bounding boxes for labeling.
+    """
+    return await _segment_first_frame_with_progress(
+        request.upload_id,
+        request.video_name,
+        request.frame_filename,
+        progress_callback=None,
+    )
+
+
+@app.get("/api/workflow/segment-first-frame-stream")
+async def segment_first_frame_stream(
+    upload_id: str,
+    video_name: str,
+    frame_filename: str,
+):
+    """Segment the first frame using SAM with real-time progress via SSE.
+    
+    This endpoint streams progress updates using Server-Sent Events (SSE).
+    """
+    import json
+    import asyncio
+    
+    async def event_generator():
+        try:
+            def progress_callback(data):
+                # This will be called from the async function
+                # We'll use a queue to pass data to the generator
+                pass
+            
+            # Use a queue to pass progress updates
+            progress_queue = asyncio.Queue()
+            
+            async def run_segmentation():
+                """Run segmentation in background and send progress updates."""
+                try:
+                    # Stage 1: Checking checkpoint
+                    await progress_queue.put({
+                        "stage": "checking_checkpoint",
+                        "message": "Checking SAM checkpoint...",
+                        "progress": 10
+                    })
+                    
+                    workflow_dir = _get_storage_dir(upload_id, video_name)
+                    all_frames_dir = workflow_dir / "all_frames"
+                    
+                    if not all_frames_dir.exists():
+                        await progress_queue.put({
+                            "stage": "error",
+                            "message": f"Frames directory not found: {all_frames_dir}",
+                            "progress": 0
+                        })
+                        return
+                    
+                    # Find the first frame
+                    frame_path = all_frames_dir / frame_filename
+                    if not frame_path.exists():
+                        frame_files = sorted(all_frames_dir.glob("*.jpg"))
+                        if not frame_files:
+                            await progress_queue.put({
+                                "stage": "error",
+                                "message": "No frame images found",
+                                "progress": 0
+                            })
+                            return
+                        frame_path = frame_files[0]
+                    
+                    # Stage 2: Check checkpoint
+                    default_checkpoint = ROOT_DIR / "models" / "sam_vit_b_01ec64.pth"
+                    if not default_checkpoint.exists():
+                        await progress_queue.put({
+                            "stage": "error",
+                            "message": "SAM checkpoint not found. Please download: wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth -P models/",
+                            "progress": 0
+                        })
+                        return
+                    
+                    # Stage 3: Initialize SAM
+                    await progress_queue.put({
+                        "stage": "initializing",
+                        "message": "Initializing SAM model...",
+                        "progress": 30
+                    })
+                    
+                    sam_service = SamService(
+                        sam_checkpoint=str(default_checkpoint),
+                        device="cpu",
+                        cache_dir=workflow_dir / "sam_cache",
+                    )
+                    sam_service.initialize(default_checkpoint)
+                    
+                    # Stage 4: Running segmentation
+                    await progress_queue.put({
+                        "stage": "segmenting",
+                        "message": "Running segmentation on frame...",
+                        "progress": 60
+                    })
+                    
+                    segments = sam_service.segment_frame(frame_path, use_cache=True)
+                    segment_dicts = [seg.to_dict() for seg in segments]
+                    
+                    sam_service.close()
+                    
+                    # Stage 5: Complete
+                    await progress_queue.put({
+                        "stage": "complete",
+                        "message": f"Found {len(segments)} segments",
+                        "progress": 100,
+                        "segments": segment_dicts,
+                        "segment_count": len(segments),
+                        "frame_path": str(frame_path),
+                    })
+                    
+                except Exception as e:
+                    LOGGER.exception("Segmentation failed")
+                    await progress_queue.put({
+                        "stage": "error",
+                        "message": f"Segmentation failed: {str(e)}",
+                        "progress": 0
+                    })
+            
+            # Start segmentation task
+            task = asyncio.create_task(run_segmentation())
+            
+            # Stream progress updates
+            while True:
+                try:
+                    # Wait for progress update with timeout
+                    update = await asyncio.wait_for(progress_queue.get(), timeout=30.0)
+                    
+                    # Send SSE event
+                    yield f"data: {json.dumps(update)}\n\n"
+                    
+                    # If complete or error, break
+                    if update.get("stage") in ("complete", "error"):
+                        break
+                        
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield f": keepalive\n\n"
+                    # Check if task is done
+                    if task.done():
+                        break
+                
+            # Wait for task to complete
+            await task
+            
+        except Exception as e:
+            LOGGER.exception("SSE stream error")
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+class SaveHoldLabelsRequest(BaseModel):
+    """Request to save hold labels."""
+    
+    upload_id: str = Field(..., description="Upload ID")
+    video_name: str = Field(..., description="Video name")
+    labels: list[dict] = Field(..., description="List of labeled segments")
+
+
+@app.post("/api/workflow/save-hold-labels", response_class=JSONResponse)
+async def save_hold_labels(request: SaveHoldLabelsRequest) -> dict[str, object]:
+    """Save hold labels and handle negative samples.
+    
+    Segments with is_hold=false or hold_type=null are treated as negative samples
+    (not part of the route the user solved).
+    """
+    try:
+        workflow_dir = _get_storage_dir(request.upload_id, request.video_name)
+        if not workflow_dir.exists():
+            raise HTTPException(status_code=404, detail="Workflow directory not found")
+        
+        # Create hold detection pool directory
+        hold_pool_dir = ROOT_DIR / "data" / "hold_detection_pool"
+        hold_pool_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a unique identifier for this labeling session
+        import time
+        session_id = f"{request.upload_id}_{request.video_name}_{int(time.time())}"
+        session_dir = hold_pool_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Separate positive and negative samples
+        positive_labels = []
+        negative_labels = []
+        
+        for label in request.labels:
+            if label.get("is_hold", False) and label.get("hold_type"):
+                positive_labels.append(label)
+            else:
+                negative_labels.append(label)
+        
+        # Save labels to JSON
+        labels_data = {
+            "upload_id": request.upload_id,
+            "video_name": request.video_name,
+            "session_id": session_id,
+            "positive_labels": positive_labels,
+            "negative_labels": negative_labels,
+            "total_segments": len(request.labels),
+            "positive_count": len(positive_labels),
+            "negative_count": len(negative_labels),
+            "created_at": datetime.now().isoformat(),
+        }
+        
+        labels_file = session_dir / "labels.json"
+        import json
+        labels_file.write_text(json.dumps(labels_data, indent=2))
+        
+        # Copy first frame image for reference
+        all_frames_dir = workflow_dir / "all_frames"
+        if all_frames_dir.exists():
+            frame_files = sorted(all_frames_dir.glob("*.jpg"))
+            if frame_files:
+                import shutil
+                shutil.copy2(frame_files[0], session_dir / "frame.jpg")
+        
+        LOGGER.info(f"Saved hold labels: {len(positive_labels)} positive, {len(negative_labels)} negative")
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "positive_count": len(positive_labels),
+            "negative_count": len(negative_labels),
+            "total_count": len(request.labels),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception("Failed to save hold labels")
+        raise HTTPException(status_code=500, detail=f"Failed to save labels: {str(e)}")
+
+
+@app.get("/api/workflow/pool/hold-detection", response_class=JSONResponse)
+async def get_hold_detection_pool() -> dict[str, object]:
+    """Get Hold Detection Labels Pool information."""
+    try:
+        hold_pool_dir = ROOT_DIR / "data" / "hold_detection_pool"
+        
+        if not hold_pool_dir.exists():
+            return {
+                "total_sets": 0,
+                "sets": [],
+            }
+        
+        # Get all session directories
+        session_dirs = [d for d in hold_pool_dir.iterdir() if d.is_dir()]
+        sets = []
+        total_labeled = 0
+        
+        for session_dir in session_dirs:
+            labels_file = session_dir / "labels.json"
+            if labels_file.exists():
+                import json
+                labels_data = json.loads(labels_file.read_text())
+                sets.append({
+                    "id": session_dir.name,
+                    "name": f"{labels_data.get('video_name', 'Unknown')} - {session_dir.name[:8]}",
+                    "labeled_segments": labels_data.get("positive_count", 0),
+                    "negative_segments": labels_data.get("negative_count", 0),
+                    "created_at": labels_data.get("created_at", ""),
+                })
+                total_labeled += labels_data.get("positive_count", 0)
+        
+        return {
+            "total_sets": len(sets),
+            "total_labeled_segments": total_labeled,
+            "sets": sorted(sets, key=lambda x: x.get("created_at", ""), reverse=True),
+        }
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to get hold detection pool: {e}")
+        return {
+            "total_sets": 0,
+            "sets": [],
+        }
+
+
+@app.get("/api/workflow/pool/key-frame-selection", response_class=JSONResponse)
+async def get_key_frame_selection_pool() -> dict[str, object]:
+    """Get Key Frame Selection Labels Pool information."""
+    try:
+        training_pool_dir = ROOT_DIR / "data" / "training_pool"
+        
+        if not training_pool_dir.exists():
+            return {
+                "video_count": 0,
+                "frame_count": 0,
+                "videos": [],
+            }
+        
+        pool_videos = [d for d in training_pool_dir.iterdir() if d.is_dir()]
+        videos = []
+        total_frames = 0
+        
+        for video_dir in pool_videos:
+            selected_dir = video_dir / "human_selected_frames"
+            if selected_dir.exists():
+                selected_frames = list(selected_dir.glob("*.jpg"))
+                frame_count = len(selected_frames)
+                total_frames += frame_count
+                
+                videos.append({
+                    "id": video_dir.name,
+                    "name": video_dir.name,
+                    "selected_frames": frame_count,
+                    "created_at": datetime.fromtimestamp(video_dir.stat().st_mtime).isoformat() if video_dir.exists() else "",
+                })
+        
+        return {
+            "video_count": len(videos),
+            "frame_count": total_frames,
+            "videos": sorted(videos, key=lambda x: x.get("created_at", ""), reverse=True),
+        }
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to get key frame selection pool: {e}")
+        return {
+            "video_count": 0,
+            "frame_count": 0,
+            "videos": [],
+        }
+
+
 @app.post("/api/workflow/train-frame-selector", response_class=JSONResponse)
 async def train_frame_selector(request: Request) -> dict[str, object]:
     """Train frame selector model using manually selected frames from current video."""
@@ -596,7 +1115,7 @@ async def train_frame_selector(request: Request) -> dict[str, object]:
         if not upload_id or not video_name:
             raise HTTPException(status_code=400, detail="Missing upload_id or video_name")
         
-        workflow_dir = ROOT_DIR / "data" / "workflow_frames" / upload_id / video_name
+        workflow_dir = _get_storage_dir(upload_id, video_name)
         human_selected_dir = workflow_dir / "human_selected_frames"
         
         if not human_selected_dir.exists():
@@ -644,11 +1163,37 @@ async def train_frame_selector(request: Request) -> dict[str, object]:
 
 @app.post("/api/system/clear", response_class=JSONResponse)
 async def clear_data() -> dict[str, object]:
-    """Clear all uploads and workflow frames data."""
+    """Clear all storage data (videos and frames).
+    
+    WARNING: This is a destructive operation that deletes all storage data.
+    Only enabled when ENABLE_SYSTEM_CLEAR=true is set.
+    """
+    if not _is_feature_enabled("ENABLE_SYSTEM_CLEAR", default=False):
+        raise HTTPException(
+            status_code=403,
+            detail="System clear endpoint is disabled for safety. Set ENABLE_SYSTEM_CLEAR=true to enable."
+        )
     try:
         cleared_dirs = []
         
-        # Clear uploads directory
+        # Clear data directory (directories matching video file pattern)
+        data_dir = ROOT_DIR / "data"
+        if data_dir.exists():
+            # Remove directories that match video file pattern (e.g., IMG_3708_251209_125416PM)
+            # But keep system directories like training_pool, hold_detection_pool, etc.
+            system_dirs = {"training_pool", "hold_detection_pool", "uploads", "workflow_frames", "storage"}
+            cleared_count = 0
+            for item in data_dir.iterdir():
+                if item.is_dir() and item.name not in system_dirs:
+                    # Check if it matches video file pattern (contains underscore and looks like video dir)
+                    if "_" in item.name:
+                        shutil.rmtree(item)
+                        cleared_count += 1
+            if cleared_count > 0:
+                cleared_dirs.append(f"data (cleared {cleared_count} video directories)")
+                LOGGER.info("Cleared %d video directories from data/", cleared_count)
+        
+        # Also clear old uploads directory for backward compatibility
         if UPLOAD_ROOT.exists():
             for item in UPLOAD_ROOT.iterdir():
                 if item.is_dir():
@@ -658,7 +1203,7 @@ async def clear_data() -> dict[str, object]:
             cleared_dirs.append("uploads")
             LOGGER.info("Cleared uploads directory: %s", UPLOAD_ROOT)
         
-        # Clear workflow_frames directory
+        # Clear old workflow_frames directory for backward compatibility
         workflow_frames_dir = ROOT_DIR / "data" / "workflow_frames"
         if workflow_frames_dir.exists():
             for item in workflow_frames_dir.iterdir():
@@ -975,6 +1520,8 @@ class TestExtractFramesRequest(BaseModel):
 @app.post("/api/test/extract-frames", response_class=JSONResponse)
 async def test_extract_frames(payload: TestExtractFramesRequest) -> dict[str, object]:
     """Test frame extraction step independently."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     import sys
     from pathlib import Path
     
@@ -1040,6 +1587,8 @@ class TestDetectHoldsRequest(BaseModel):
 @app.post("/api/test/detect-holds", response_class=JSONResponse)
 async def test_detect_holds(payload: TestDetectHoldsRequest) -> dict[str, object]:
     """Test hold detection step independently."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     import sys
     from pathlib import Path
     
@@ -1093,6 +1642,8 @@ class TestEstimateWallAngleRequest(BaseModel):
 @app.post("/api/test/estimate-wall-angle", response_class=JSONResponse)
 async def test_estimate_wall_angle(payload: TestEstimateWallAngleRequest) -> dict[str, object]:
     """Test wall angle estimation step independently."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     import sys
     from pathlib import Path
     
@@ -1128,6 +1679,8 @@ class TestEstimatePoseRequest(BaseModel):
 @app.post("/api/test/estimate-pose", response_class=JSONResponse)
 async def test_estimate_pose(payload: TestEstimatePoseRequest) -> dict[str, object]:
     """Test pose estimation step independently."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     import sys
     from pathlib import Path
     
@@ -1173,6 +1726,8 @@ class TestExtractFeaturesRequest(BaseModel):
 @app.post("/api/test/extract-features", response_class=JSONResponse)
 async def test_extract_features(payload: TestExtractFeaturesRequest) -> dict[str, object]:
     """Test feature extraction step independently (includes segmentation and efficiency)."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     import sys
     from pathlib import Path
     
@@ -1228,6 +1783,8 @@ async def test_extract_features(payload: TestExtractFeaturesRequest) -> dict[str
 @app.get("/api/test/validate/{step_name}", response_class=JSONResponse)
 async def validate_step_output(step_name: str) -> dict[str, object]:
     """Validate output of a specific step."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     # This is a placeholder - can be expanded with actual validation logic
     valid_steps = [
         "extract-frames",
@@ -1252,6 +1809,8 @@ async def validate_step_output(step_name: str) -> dict[str, object]:
 @app.get("/testing", response_class=HTMLResponse)
 async def testing_page(request: Request) -> HTMLResponse:
     """Testing page for individual step execution."""
+    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
+        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
     return templates.TemplateResponse("testing.html", {"request": request})
 
 

@@ -23,22 +23,36 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSessions();
   loadTrainingJobs();
 
-  // Default: show both hold labeling and key frame selection flow
+  // Initially hide step 2, 4 - they will be shown after "Start Analyzing"
+  // Step 3 (frame selection) is shown for demo purposes
   const frameSelectionUI = document.getElementById('frame-selection-ui');
   const step2 = document.getElementById('step-2');
   const step3 = document.getElementById('step-3');
   const step4 = document.getElementById('step-4');
 
-  frameSelectionUI.style.display = 'none';
-  step2.style.display = 'block';
-  step3.style.display = 'block';
-  step4.style.display = 'block';
+  // Demo: Show step 3 (frame selection) and its UI immediately
+  if (step3) step3.style.display = 'block';
+  if (frameSelectionUI) frameSelectionUI.style.display = 'block';
+  if (step2) step2.style.display = 'none';
+  if (step4) step4.style.display = 'none';
 
   // Poll for updates every 5 seconds
   setInterval(() => {
     loadSessions();
     loadTrainingJobs();
+    // Load training pools if visible
+    const poolHoldsContent = document.getElementById('pool-holds-content');
+    const poolFramesContent = document.getElementById('pool-frames-content');
+    if (poolHoldsContent && poolHoldsContent.style.display !== 'none') {
+      loadHoldDetectionPool();
+    }
+    if (poolFramesContent && poolFramesContent.style.display !== 'none') {
+      loadKeyFrameSelectionPool();
+    }
   }, 5000);
+
+  // Load initial training pool (holds by default)
+  loadHoldDetectionPool();
 });
 
 /**
@@ -52,13 +66,13 @@ function setupEventListeners() {
       handleVideoFileSelection(event);
     });
   }
-  
+
   // 3D conversion button (temporarily disabled)
   // const btnConvert3D = document.getElementById('btn-convert-to-3d');
   // if (btnConvert3D) {
   //   btnConvert3D.addEventListener('click', handleConvertTo3D);
   // }
-  
+
   // Close 3D viewer button (temporarily disabled)
   // const btnClose3DViewer = document.getElementById('btn-close-3d-viewer');
   // if (btnClose3DViewer) {
@@ -79,7 +93,7 @@ function setupEventListeners() {
   // Other event listeners
   const btnExtractFrames = document.getElementById('btn-extract-frames');
   if (btnExtractFrames) {
-    btnExtractFrames.addEventListener('click', extractFrames);
+    btnExtractFrames.addEventListener('click', startAnalyzing);
   }
 
   const btnCreateSession = document.getElementById('btn-create-session');
@@ -133,12 +147,38 @@ function setupEventListeners() {
 
   // Load training pool info on page load
   loadTrainingPoolInfo();
+
+  // Hold labeling submit button
+  const btnSubmitHolds = document.getElementById('btn-submit-holds');
+  if (btnSubmitHolds) {
+    btnSubmitHolds.addEventListener('click', submitHoldLabels);
+  }
+
+  // Training pool toggle buttons
+  const btnPoolToggleHolds = document.getElementById('btn-pool-toggle-holds');
+  const btnPoolToggleFrames = document.getElementById('btn-pool-toggle-frames');
+  if (btnPoolToggleHolds) {
+    btnPoolToggleHolds.addEventListener('click', () => toggleTrainingPool('holds'));
+  }
+  if (btnPoolToggleFrames) {
+    btnPoolToggleFrames.addEventListener('click', () => toggleTrainingPool('frames'));
+  }
+
+  // Training pool train buttons
+  const btnTrainYoloFromPool = document.getElementById('btn-train-yolo-from-pool');
+  const btnTrainFrameSelectorFromPool = document.getElementById('btn-train-frame-selector-from-pool');
+  if (btnTrainYoloFromPool) {
+    btnTrainYoloFromPool.addEventListener('click', trainYoloFromPool);
+  }
+  if (btnTrainFrameSelectorFromPool) {
+    btnTrainFrameSelectorFromPool.addEventListener('click', trainFrameSelectorFromPool);
+  }
 }
 
 /**
- * Step 1: Extract frames from video
+ * Step 1: Start analyzing - extract frames and begin hold detection workflow
  */
-async function extractFrames() {
+async function startAnalyzing() {
   const videoFile = document.getElementById('video-file').files[0];
   if (!videoFile) {
     showStatus('step-1', 'Please select a video file', 'error');
@@ -164,38 +204,42 @@ async function extractFrames() {
     const data = await response.json();
     currentFrameDir = data.frame_directory;
 
-    // Update UI
-    document.getElementById('frame-dir').value = currentFrameDir;
-    document.getElementById('btn-create-session').disabled = false;
+    // Use upload_id and video_name from response (or extract from path)
+    const uploadId = data.upload_id || (() => {
+      const pathParts = data.frame_directory.split('/');
+      const dataIdx = pathParts.indexOf('data');
+      // After 'data', the next part should be the video directory name
+      return dataIdx >= 0 && dataIdx < pathParts.length - 1 ? pathParts[dataIdx + 1] : null;
+    })();
+    const videoName = data.video_name || (() => {
+      // Extract video name from upload_id (format: IMG_3708_251209_125416PM)
+      if (uploadId) {
+        const parts = uploadId.split('_');
+        if (parts.length >= 2) {
+          return parts[0] + '_' + parts[1];  // e.g., "IMG_3708"
+        }
+        return uploadId.split('_')[0];
+      }
+      return null;
+    })();
+
+    // Store for later use
+    currentUploadId = uploadId;
+    currentVideoName = videoName;
+    currentFrameDir = data.frame_directory;
 
     showStatus('step-1', `Extracted ${data.frame_count} frames`, 'success');
     setStepCompleted('step-1');
-    setStepActive('step-2');
 
-    // Load frames for manual selection if in frame selection mode
-    const pipelineMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
-    if (pipelineMode === 'frame_selection') {
-      // Extract upload_id and video_name from frame_directory
-      const pathParts = data.frame_directory.split('/');
-      const uploadId = pathParts[pathParts.length - 2];
-      const videoName = pathParts[pathParts.length - 1];
-      await loadFramesForSelection(uploadId, videoName);
-    } else {
-      // Hold detection mode: show SAM labeling UI
-      const pathParts = data.frame_directory.split('/');
-      const uploadId = pathParts[pathParts.length - 2];
-      const videoName = pathParts[pathParts.length - 1];
-
-      // Store for later use
-      currentUploadId = uploadId;
-      currentVideoName = videoName;
-      currentFrameDir = data.frame_directory;
-
-      // Show hold labeling UI
-      showHoldLabelingUI(uploadId, videoName, data.frame_count);
-      setStepCompleted('step-1');
+    // Show Step 2 and hold labeling UI
+    const step2 = document.getElementById('step-2');
+    if (step2) {
+      step2.style.display = 'block';
       setStepActive('step-2');
     }
+
+    // Show hold labeling UI and automatically start SAM segmentation
+    showHoldLabelingUI(uploadId, videoName, data.frame_count);
 
   } catch (error) {
     console.error('Frame extraction failed:', error);
@@ -579,13 +623,6 @@ async function loadFramesForSelection(uploadId, videoName) {
     // Update previously selected frames to show auto-selected first frame
     updatePreviouslySelectedFrames();
 
-    // Show frame selection UI now that frames are loaded
-    const frameSelectionUI = document.getElementById('frame-selection-ui');
-    const currentMode = document.querySelector('input[name="pipeline-mode"]:checked').value;
-    if (currentMode === 'frame_selection') {
-      frameSelectionUI.style.display = 'block';
-    }
-
   } catch (error) {
     console.error('Failed to load frames:', error);
     showStatus('step-1', `Error loading frames: ${error.message}`, 'error');
@@ -609,12 +646,15 @@ function updateFramePreview() {
   document.getElementById('frame-current').textContent = frameSelectionState.currentIndex + 1;
   document.getElementById('frame-slider').value = frameSelectionState.currentIndex;
 
-  // Update selected badge
+  // Update selected badge (both vertical and horizontal layouts)
   const badge = document.getElementById('frame-selected-badge');
-  if (frameSelectionState.selectedFrames.has(frame.filename)) {
-    badge.style.display = 'block';
-  } else {
-    badge.style.display = 'none';
+  const badgeHorizontal = document.getElementById('frame-selected-badge-horizontal');
+  const isSelected = frameSelectionState.selectedFrames.has(frame.filename);
+  if (badge) {
+    badge.style.display = isSelected ? 'block' : 'none';
+  }
+  if (badgeHorizontal) {
+    badgeHorizontal.style.display = isSelected ? 'block' : 'none';
   }
 
   // Update previously selected frames display
@@ -1084,6 +1124,12 @@ function updateFrameCounterDisplay() {
 
 // ========== Hold Labeling UI ==========
 
+// State for hold labeling
+let holdLabelingSegments = [];
+let holdLabelingCanvas = null;
+let holdLabelingCtx = null;
+let holdLabelingImage = null;
+
 /**
  * Show hold labeling UI after frame extraction in hold detection mode
  */
@@ -1092,23 +1138,20 @@ function showHoldLabelingUI(uploadId, videoName, frameCount) {
   holdColor = document.getElementById('hold-color').value;
   routeDifficulty = document.getElementById('route-difficulty').value;
 
-  // Display metadata
-  document.getElementById('display-hold-color').textContent =
-    holdColor.charAt(0).toUpperCase() + holdColor.slice(1);
-  document.getElementById('display-route-difficulty').textContent =
-    routeDifficulty.charAt(0).toUpperCase() + routeDifficulty.slice(1);
-  document.getElementById('total-frames-for-labeling').textContent = frameCount;
-
   // Show the hold labeling UI
   const holdLabelingUI = document.getElementById('hold-labeling-ui');
   holdLabelingUI.style.display = 'block';
 
-  // Load first frame for labeling
+  // Initialize canvas
+  holdLabelingCanvas = document.getElementById('hold-labeling-canvas');
+  holdLabelingCtx = holdLabelingCanvas.getContext('2d');
+
+  // Load first frame for labeling and automatically start SAM segmentation
   loadFirstFrameForLabeling(uploadId, videoName);
 }
 
 /**
- * Load first frame for hold labeling
+ * Load first frame for hold labeling and start SAM segmentation automatically
  */
 async function loadFirstFrameForLabeling(uploadId, videoName) {
   try {
@@ -1119,13 +1162,512 @@ async function loadFirstFrameForLabeling(uploadId, videoName) {
 
     const data = await response.json();
     if (data.frames && data.frames.length > 0) {
-      // Show first frame
+      // Get first frame
       const firstFrame = data.frames[0];
-      document.getElementById('hold-labeling-frame').src = firstFrame.path;
+
+      // Load image onto canvas
+      await loadImageToCanvas(firstFrame.path);
+
+      // Automatically start SAM segmentation
+      await startSamSegmentation(uploadId, videoName, firstFrame.filename);
     }
   } catch (error) {
     console.error('Failed to load frame for labeling:', error);
     showStatus('step-2', `Error loading frames: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Load image onto canvas
+ */
+function loadImageToCanvas(imageUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      holdLabelingImage = img;
+
+      // Get container dimensions (the inner div that holds the canvas)
+      const container = holdLabelingCanvas.parentElement; // Get the inner container div
+      const containerWidth = container.clientWidth;
+      const maxHeight = window.innerHeight * 0.8; // Max height to prevent too large
+
+      // Calculate aspect ratio
+      const imgAspect = img.width / img.height;
+      const containerAspect = containerWidth / maxHeight;
+
+      // Fit image to container while maintaining aspect ratio (no cropping)
+      let displayWidth, displayHeight;
+      if (imgAspect > containerAspect) {
+        // Image is wider - fit to width
+        displayWidth = containerWidth;
+        displayHeight = displayWidth / imgAspect;
+      } else {
+        // Image is taller - fit to height
+        displayHeight = Math.min(maxHeight, img.height);
+        displayWidth = displayHeight * imgAspect;
+      }
+
+      // Set canvas display size to fit without cropping
+      holdLabelingCanvas.style.width = `${displayWidth}px`;
+      holdLabelingCanvas.style.height = `${displayHeight}px`;
+      holdLabelingCanvas.style.maxWidth = '100%';
+      holdLabelingCanvas.style.maxHeight = `${maxHeight}px`;
+
+      // Set canvas internal size to match image (for drawing)
+      holdLabelingCanvas.width = img.width;
+      holdLabelingCanvas.height = img.height;
+
+      // Draw image
+      holdLabelingCtx.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = imageUrl;
+  });
+}
+
+/**
+ * Start SAM segmentation on first frame with real-time progress
+ */
+async function startSamSegmentation(uploadId, videoName, frameFilename) {
+  const loadingDiv = document.getElementById('sam-loading');
+  const segmentsList = document.getElementById('segments-list');
+
+  try {
+    // Show loading state with progress indicator
+    loadingDiv.style.display = 'block';
+    loadingDiv.innerHTML = `
+      <div style="text-align: center;">
+        <div style="color: #fff; font-size: 16px; margin-bottom: 10px;">Running SAM segmentation...</div>
+        <div style="background: #2a2a2a; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 10px;">
+          <div id="sam-progress-bar" style="background: #0066cc; height: 100%; width: 0%; transition: width 0.3s;"></div>
+        </div>
+        <div id="sam-progress-message" style="color: #aaa; font-size: 12px;">Initializing...</div>
+      </div>
+    `;
+
+    // Use EventSource for real-time progress updates
+    const eventSource = new EventSource(
+      `/api/workflow/segment-first-frame-stream?` +
+      `upload_id=${encodeURIComponent(uploadId)}&` +
+      `video_name=${encodeURIComponent(videoName)}&` +
+      `frame_filename=${encodeURIComponent(frameFilename)}`
+    );
+
+    // Handle SSE events
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        updateSamProgress(data);
+
+        // If complete, process segments
+        if (data.stage === 'complete') {
+          holdLabelingSegments = data.segments || [];
+
+          // Close event source
+          eventSource.close();
+
+          // Hide loading
+          loadingDiv.style.display = 'none';
+
+          // Render segments with bounding boxes and dropdowns
+          renderSegmentsWithDropdowns();
+
+          // Show submit button
+          document.getElementById('btn-submit-holds').style.display = 'block';
+
+          showStatus('step-2', `Found ${holdLabelingSegments.length} segments`, 'success');
+        } else if (data.stage === 'error') {
+          eventSource.close();
+          throw new Error(data.message);
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE data:', e);
+        eventSource.close();
+        throw e;
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE error:', error);
+      eventSource.close();
+      throw new Error('Connection error during segmentation');
+    };
+
+  } catch (error) {
+    console.error('SAM segmentation failed:', error);
+    loadingDiv.style.display = 'none';
+    segmentsList.innerHTML = `<p style="color: #f85149; text-align: center; margin: 0;">Error: ${error.message}</p>`;
+    showStatus('step-2', `Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Update SAM segmentation progress UI
+ */
+function updateSamProgress(data) {
+  const progressBar = document.getElementById('sam-progress-bar');
+  const progressMessage = document.getElementById('sam-progress-message');
+
+  if (progressBar && data.progress !== undefined) {
+    progressBar.style.width = `${data.progress}%`;
+  }
+
+  if (progressMessage && data.message) {
+    progressMessage.textContent = data.message;
+
+    // Update color based on stage
+    if (data.stage === 'error') {
+      progressMessage.style.color = '#f85149';
+    } else if (data.stage === 'complete') {
+      progressMessage.style.color = '#3fb950';
+    } else {
+      progressMessage.style.color = '#aaa';
+    }
+  }
+}
+
+// Hold types mapping
+const HOLD_TYPES = {
+  '': 'Not a hold',
+  'crimp': 'Crimp',
+  'sloper': 'Sloper',
+  'jug': 'Jug',
+  'pinch': 'Pinch',
+  'foot_only': 'Foot Only',
+  'volume': 'Volume',
+};
+
+// Hold colors
+const HOLD_COLORS = [
+  { value: 'red', label: '🔴 Red' },
+  { value: 'blue', label: '🔵 Blue' },
+  { value: 'green', label: '🟢 Green' },
+  { value: 'yellow', label: '🟡 Yellow' },
+  { value: 'purple', label: '🟣 Purple' },
+  { value: 'black', label: '⚫ Black' },
+];
+
+// Color palette for segments
+const SEGMENT_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+  '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B88B', '#AAB7B8',
+];
+
+/**
+ * Render segments with bounding boxes on canvas and dropdowns in list
+ */
+function renderSegmentsWithDropdowns() {
+  if (!holdLabelingImage || !holdLabelingCtx) return;
+
+  // Clear canvas and redraw image
+  holdLabelingCtx.clearRect(0, 0, holdLabelingCanvas.width, holdLabelingCanvas.height);
+  holdLabelingCtx.drawImage(holdLabelingImage, 0, 0);
+
+  // Draw bounding boxes
+  holdLabelingSegments.forEach((segment, idx) => {
+    const [x1, y1, x2, y2] = segment.bbox;
+    const color = SEGMENT_COLORS[idx % SEGMENT_COLORS.length];
+
+    // Draw bounding box
+    holdLabelingCtx.strokeStyle = color;
+    holdLabelingCtx.lineWidth = 3;
+    holdLabelingCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+    // Draw segment number
+    holdLabelingCtx.fillStyle = color;
+    holdLabelingCtx.font = 'bold 14px Arial';
+    holdLabelingCtx.fillText(`#${idx + 1}`, x1 + 5, y1 + 20);
+  });
+
+  // Render segments list with dropdowns
+  const segmentsList = document.getElementById('segments-list');
+  if (holdLabelingSegments.length === 0) {
+    segmentsList.innerHTML = '<p style="color: #888; text-align: center; margin: 0;">No segments found.</p>';
+    return;
+  }
+
+  segmentsList.innerHTML = holdLabelingSegments.map((segment, idx) => {
+    const color = SEGMENT_COLORS[idx % SEGMENT_COLORS.length];
+    return `
+      <div class="segment-item" data-segment-id="${segment.segment_id}" style="margin-bottom: 15px; padding: 12px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid ${color}; display: flex; gap: 15px;">
+        <!-- Left: Segment number and score (vertical) -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 60px; padding-right: 15px; border-right: 1px solid #333;">
+          <span style="color: #fff; font-weight: bold; font-size: 18px; margin-bottom: 5px;">#${idx + 1}</span>
+          <span style="color: #aaa; font-size: 11px; text-align: center;">Score</span>
+          <span style="color: #888; font-size: 12px; text-align: center;">${segment.stability_score?.toFixed(2) || 'N/A'}</span>
+        </div>
+        <!-- Right: Hold type and color (vertical) - takes 2/3 of remaining space -->
+        <div style="flex: 0 0 66.67%; max-width: 66.67%; display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;">Hold Type</label>
+            <select class="hold-type-selector" data-segment-id="${segment.segment_id}" style="width: 100%; padding: 8px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px;">
+              ${Object.entries(HOLD_TYPES).map(([value, label]) =>
+      `<option value="${value}">${label}</option>`
+    ).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;">Hold Color</label>
+            <select class="hold-color-selector" data-segment-id="${segment.segment_id}" style="width: 100%; padding: 8px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px;">
+              ${HOLD_COLORS.map(color =>
+      `<option value="${color.value}">${color.label}</option>`
+    ).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Add event listeners to dropdowns
+  segmentsList.querySelectorAll('.hold-type-selector').forEach(select => {
+    select.addEventListener('change', (e) => {
+      const segmentId = e.target.dataset.segmentId;
+      const segment = holdLabelingSegments.find(s => s.segment_id === segmentId);
+      if (segment) {
+        segment.hold_type = e.target.value;
+        segment.is_hold = e.target.value !== '';
+      }
+    });
+  });
+
+  segmentsList.querySelectorAll('.hold-color-selector').forEach(select => {
+    select.addEventListener('change', (e) => {
+      const segmentId = e.target.dataset.segmentId;
+      const segment = holdLabelingSegments.find(s => s.segment_id === segmentId);
+      if (segment) {
+        segment.hold_color = e.target.value;
+      }
+    });
+  });
+}
+
+/**
+ * Submit hold labels and proceed to key frame selection
+ */
+async function submitHoldLabels() {
+  if (!currentUploadId || !currentVideoName) {
+    showStatus('step-2', 'No video loaded', 'error');
+    return;
+  }
+
+  try {
+    showStatus('step-2', 'Saving labels...', 'info');
+
+    // Prepare labels data
+    const labels = holdLabelingSegments.map(segment => ({
+      segment_id: segment.segment_id,
+      hold_type: segment.hold_type || null,
+      hold_color: segment.hold_color || null,
+      is_hold: segment.is_hold || false,
+      bbox: segment.bbox,
+    }));
+
+    const response = await fetch('/api/workflow/save-hold-labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_id: currentUploadId,
+        video_name: currentVideoName,
+        labels: labels,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save labels: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    showStatus('step-2', 'Labels saved successfully!', 'success');
+    setStepCompleted('step-2');
+
+    // Show Step 3 and scroll to it
+    const step3 = document.getElementById('step-3');
+    const frameSelectionUI = document.getElementById('frame-selection-ui');
+    if (step3 && frameSelectionUI) {
+      step3.style.display = 'block';
+      setStepActive('step-3');
+
+      // Show frame selection UI
+      frameSelectionUI.style.display = 'block';
+
+      // Load frames for key frame selection
+      await loadFramesForSelection(currentUploadId, currentVideoName);
+
+      // Scroll to step 3
+      setTimeout(() => {
+        scrollToStep('step-3');
+      }, 300);
+    }
+
+  } catch (error) {
+    console.error('Failed to submit labels:', error);
+    showStatus('step-2', `Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Scroll to a specific step smoothly
+ */
+function scrollToStep(stepId) {
+  const stepElement = document.getElementById(stepId);
+  if (stepElement) {
+    stepElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+// ========== Training Pool Management ==========
+
+/**
+ * Toggle between Hold Detection Labels and Key Frame Selection Labels pools
+ */
+function toggleTrainingPool(poolType) {
+  const btnHolds = document.getElementById('btn-pool-toggle-holds');
+  const btnFrames = document.getElementById('btn-pool-toggle-frames');
+  const contentHolds = document.getElementById('pool-holds-content');
+  const contentFrames = document.getElementById('pool-frames-content');
+
+  if (poolType === 'holds') {
+    btnHolds.style.background = '#0066cc';
+    btnHolds.style.color = 'white';
+    btnFrames.style.background = '#333';
+    btnFrames.style.color = '#aaa';
+    contentHolds.style.display = 'block';
+    contentFrames.style.display = 'none';
+    loadHoldDetectionPool();
+  } else {
+    btnHolds.style.background = '#333';
+    btnHolds.style.color = '#aaa';
+    btnFrames.style.background = '#0066cc';
+    btnFrames.style.color = 'white';
+    contentHolds.style.display = 'none';
+    contentFrames.style.display = 'block';
+    loadKeyFrameSelectionPool();
+  }
+}
+
+/**
+ * Load Hold Detection Labels Pool
+ */
+async function loadHoldDetectionPool() {
+  try {
+    const response = await fetch('/api/workflow/pool/hold-detection');
+    if (!response.ok) {
+      console.warn('Failed to load hold detection pool');
+      return;
+    }
+
+    const data = await response.json();
+    document.getElementById('pool-holds-count').textContent = data.total_sets || 0;
+
+    const listContainer = document.getElementById('pool-holds-list');
+    if (data.sets && data.sets.length > 0) {
+      listContainer.innerHTML = data.sets.map(set => `
+        <div style="padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
+          <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${set.name || set.id}</div>
+          <div style="color: #aaa; font-size: 12px;">
+            ${set.labeled_segments || 0} labeled segments | ${set.created_at || ''}
+          </div>
+        </div>
+      `).join('');
+    } else {
+      listContainer.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No labeled holds in pool yet.</p>';
+    }
+  } catch (error) {
+    console.error('Failed to load hold detection pool:', error);
+  }
+}
+
+/**
+ * Load Key Frame Selection Labels Pool
+ */
+async function loadKeyFrameSelectionPool() {
+  try {
+    const response = await fetch('/api/workflow/pool/key-frame-selection');
+    if (!response.ok) {
+      console.warn('Failed to load key frame selection pool');
+      return;
+    }
+
+    const data = await response.json();
+    document.getElementById('pool-video-count').textContent = data.video_count || 0;
+    document.getElementById('pool-frame-count').textContent = data.frame_count || 0;
+
+    const listContainer = document.getElementById('pool-frames-list');
+    if (data.videos && data.videos.length > 0) {
+      listContainer.innerHTML = data.videos.map(video => `
+        <div style="padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
+          <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${video.name || video.id}</div>
+          <div style="color: #aaa; font-size: 12px;">
+            ${video.selected_frames || 0} selected frames | ${video.created_at || ''}
+          </div>
+        </div>
+      `).join('');
+    } else {
+      listContainer.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No selected frames in pool yet.</p>';
+    }
+  } catch (error) {
+    console.error('Failed to load key frame selection pool:', error);
+  }
+}
+
+/**
+ * Train YOLO from Hold Detection Pool
+ */
+async function trainYoloFromPool() {
+  if (!confirm('Train YOLO model using all labeled holds in the pool?')) {
+    return;
+  }
+
+  try {
+    showStatus('step-2', 'Starting YOLO training from pool...', 'info');
+
+    const response = await fetch('/api/yolo/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dataset_yaml: 'data/hold_detection_pool/dataset.yaml',
+        model: 'yolov8n.pt',
+        epochs: 100,
+        batch: 16,
+        imgsz: 640,
+        upload_to_gcs: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Training failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    showStatus('step-2', `Training started (Job ID: ${data.job_id})`, 'success');
+    loadTrainingJobs();
+
+  } catch (error) {
+    console.error('Failed to start training:', error);
+    showStatus('step-2', `Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Train Frame Selector from Key Frame Selection Pool
+ */
+async function trainFrameSelectorFromPool() {
+  if (!confirm('Train frame selector model using all selected frames in the pool?')) {
+    return;
+  }
+
+  try {
+    showStatus('step-3', 'Starting frame selector training from pool...', 'info');
+
+    // This would need a new endpoint that trains from the pool
+    // For now, show a message
+    showStatus('step-3', 'Training from pool not yet implemented. Use individual video training.', 'info');
+
+  } catch (error) {
+    console.error('Failed to start training:', error);
+    showStatus('step-3', `Error: ${error.message}`, 'error');
   }
 }
 
@@ -1245,27 +1787,38 @@ function generateSessionName() {
 async function handleConvertTo3D() {
   // Try to get upload ID from current frame directory if not set
   if (!currentUploadId && currentFrameDir) {
-    // Extract upload ID from frame directory path
+    // Extract upload ID from frame directory path (look for 'data' directory)
     const pathParts = currentFrameDir.split('/');
-    const uploadIdx = pathParts.indexOf('uploads');
-    if (uploadIdx >= 0 && uploadIdx < pathParts.length - 1) {
-      currentUploadId = pathParts[uploadIdx + 1];
+    const dataIdx = pathParts.indexOf('data');
+    if (dataIdx >= 0 && dataIdx < pathParts.length - 1) {
+      currentUploadId = pathParts[dataIdx + 1];
+    } else {
+      // Fallback: try 'storage' or 'uploads' for backward compatibility
+      const storageIdx = pathParts.indexOf('storage');
+      if (storageIdx >= 0 && storageIdx < pathParts.length - 1) {
+        currentUploadId = pathParts[storageIdx + 1];
+      } else {
+        const uploadIdx = pathParts.indexOf('uploads');
+        if (uploadIdx >= 0 && uploadIdx < pathParts.length - 1) {
+          currentUploadId = pathParts[uploadIdx + 1];
+        }
+      }
     }
   }
-  
+
   if (!currentUploadId) {
     show3DStatus('Please upload a video and extract frames first', 'error');
     return;
   }
-  
+
   const btn = document.getElementById('btn-convert-to-3d');
   const statusDiv = document.getElementById('status-3d-conversion');
-  
+
   btn.disabled = true;
   btn.textContent = '🔄 Converting...';
   statusDiv.style.display = 'block';
   show3DStatus('Starting 3D conversion...', 'info');
-  
+
   try {
     const response = await fetch('/api/detection/convert-to-3d', {
       method: 'POST',
@@ -1277,20 +1830,20 @@ async function handleConvertTo3D() {
         mesh_resolution: null,
       }),
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Conversion failed');
     }
-    
+
     const data = await response.json();
     current3DModelId = data.model_id;
-    
+
     show3DStatus('Conversion started. Checking status...', 'info');
-    
+
     // Start polling for completion
     poll3DConversionStatus(data.model_id);
-    
+
   } catch (error) {
     console.error('3D conversion failed:', error);
     show3DStatus(`Error: ${error.message}`, 'error');
@@ -1305,13 +1858,13 @@ async function handleConvertTo3D() {
 async function poll3DConversionStatus(modelId) {
   const maxAttempts = 60; // 5 minutes max (5 second intervals)
   let attempts = 0;
-  
+
   const poll = async () => {
     attempts++;
-    
+
     try {
       const response = await fetch(`/api/detection/3d-models/${modelId}`);
-      
+
       if (!response.ok) {
         if (response.status === 404 && attempts < maxAttempts) {
           // Still processing, check again
@@ -1321,21 +1874,21 @@ async function poll3DConversionStatus(modelId) {
         }
         throw new Error('Failed to check conversion status');
       }
-      
+
       const metadata = await response.json();
-      
+
       // Check if there's an error
       if (metadata.status === 'error') {
         show3DStatus(`Error: ${metadata.error}`, 'error');
         resetConvertButton();
         return;
       }
-      
+
       // Conversion complete
       show3DStatus('Conversion complete! Loading 3D model...', 'success');
       await display3DModel(modelId);
       resetConvertButton();
-      
+
     } catch (error) {
       if (attempts < maxAttempts) {
         setTimeout(poll, 5000);
@@ -1346,7 +1899,7 @@ async function poll3DConversionStatus(modelId) {
       }
     }
   };
-  
+
   poll();
 }
 
@@ -1360,17 +1913,17 @@ async function display3DModel(modelId) {
     if (!response.ok) {
       throw new Error('Failed to get 3D model preview');
     }
-    
+
     const data = await response.json();
-    
+
     if (!data.mesh_url) {
       throw new Error('No mesh file available');
     }
-    
+
     // Show viewer container
     const viewerContainer = document.getElementById('3d-viewer-container');
     viewerContainer.style.display = 'block';
-    
+
     // Initialize Three.js viewer if not already done
     if (!threeViewer) {
       const viewerDiv = document.getElementById('three-viewer');
@@ -1380,22 +1933,22 @@ async function display3DModel(modelId) {
         backgroundColor: 0x1a1a1a,
       });
     }
-    
+
     // Load model
     await threeViewer.loadModel(data.mesh_url, data.mesh_file);
-    
+
     // Update model info
     const infoDiv = document.getElementById('3d-model-info');
     if (data.metadata && data.metadata.mesh_stats) {
       const stats = data.metadata.mesh_stats;
       infoDiv.textContent = `Vertices: ${stats.vertex_count.toLocaleString()}, Faces: ${stats.face_count.toLocaleString()}`;
     }
-    
+
     show3DStatus('3D model loaded successfully!', 'success');
-    
+
     // Scroll to viewer
     viewerContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    
+
   } catch (error) {
     console.error('Failed to display 3D model:', error);
     show3DStatus(`Error loading 3D model: ${error.message}`, 'error');
@@ -1408,12 +1961,12 @@ async function display3DModel(modelId) {
 function close3DViewer() {
   const viewerContainer = document.getElementById('3d-viewer-container');
   viewerContainer.style.display = 'none';
-  
+
   if (threeViewer) {
     threeViewer.destroy();
     threeViewer = null;
   }
-  
+
   current3DModelId = null;
 }
 
@@ -1424,7 +1977,7 @@ function show3DStatus(message, type) {
   const statusDiv = document.getElementById('status-3d-conversion');
   statusDiv.textContent = message;
   statusDiv.className = `status-3d-${type}`;
-  
+
   // Set color based on type
   if (type === 'error') {
     statusDiv.style.background = 'rgba(218, 54, 51, 0.2)';
