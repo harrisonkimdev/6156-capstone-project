@@ -24,18 +24,162 @@
   </header>
   <main class="container">
     <section class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div class="card-header" style="margin-bottom: 0; padding-bottom: 0; border-bottom: none;">
         <div>
           <h1 class="title">Detection Model Training</h1>
           <p class="subtitle">Train YOLO models for hold detection using labeled climbing wall images.</p>
         </div>
-        <button id="btn-clear-data" type="button" class="secondary-btn" style="background: #cc3333; color: white;">
+        <button id="btn-clear-data" type="button" class="secondary-btn text-danger"
+          style="border-color: var(--danger);">
           🔄 Clear Training Data
         </button>
       </div>
     </section>
 
+    <!-- Summary Section -->
+    <section class="card" id="summary-section"
+      style="background: linear-gradient(135deg, #1a3a5a 0%, #1e1e1e 100%); border: 1px solid #0066cc;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+        <div class="summary-item">
+          <div class="summary-label">Labeled Images</div>
+          <div class="summary-value" id="summary-labeled-count">—</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Last Trained</div>
+          <div class="summary-value" id="summary-last-trained">—</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Current Model</div>
+          <div class="summary-value" id="summary-model-status">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Training Pool & Jobs Section (with toggle) -->
     <section class="card">
+      <div class="card-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+        <h2 style="color: #fff; margin: 0; font-size: 18px;">Training Pool & Jobs</h2>
+        <label class="toggle-switch"
+          style="display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;">
+          <span id="toggle-label"
+            style="color: #aaa; font-size: 14px; font-weight: 500; transition: color 0.3s ease;">Show</span>
+          <input type="checkbox" id="toggle-training-pool" style="display: none;">
+          <div class="toggle-slider"
+            style="position: relative; width: 56px; height: 28px; background: #333; border-radius: 14px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border: 2px solid #444; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+            <div class="toggle-knob"
+              style="position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 6px rgba(0,0,0,0.4), 0 0 0 0 rgba(0,102,204,0.2);">
+            </div>
+          </div>
+        </label>
+      </div>
+      <div id="training-pool-jobs-content"
+        style="display: block; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+        <!-- Training Pool Section -->
+        <div class="training-pool-section"
+          style="margin-bottom: 30px; padding: 20px; background: #1e1e1e; border-radius: 8px;">
+          <h3 style="color: #fff; margin-top: 0; margin-bottom: 15px; font-size: 16px;">Training Pool</h3>
+          <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <button id="btn-pool-toggle-holds" class="pool-toggle active"
+              style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+              Hold Detection Labels
+            </button>
+            <button id="btn-pool-toggle-frames" class="pool-toggle"
+              style="flex: 1; padding: 12px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+              Key Frame Selection Labels
+            </button>
+          </div>
+          <div id="pool-holds-content" class="pool-content">
+            <div style="padding: 15px; background: #2a2a2a; border-radius: 4px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="color: #aaa;">Total labeled sets: <strong id="pool-holds-count"
+                    style="color: #0066cc;">0</strong></span>
+                <button id="btn-train-yolo-from-pool"
+                  style="padding: 8px 16px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  🚀 Train YOLO
+                </button>
+              </div>
+              <div id="pool-holds-list" style="max-height: 200px; overflow-y: auto;">
+                <p style="color: #888; text-align: center; padding: 20px;">No labeled holds in pool yet.</p>
+              </div>
+            </div>
+          </div>
+          <div id="pool-frames-content" class="pool-content" style="display: none;">
+            <div style="padding: 15px; background: #2a2a2a; border-radius: 4px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="color: #aaa;">Total videos: <strong id="pool-video-count"
+                    style="color: #0066cc;">0</strong>, Frames: <strong id="pool-frame-count"
+                    style="color: #0066cc;">0</strong></span>
+                <button id="btn-train-frame-selector-from-pool"
+                  style="padding: 8px 16px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  🚀 Train Frame Selector
+                </button>
+              </div>
+              <div id="pool-frames-list" style="max-height: 200px; overflow-y: auto;">
+                <p style="color: #888; text-align: center; padding: 20px;">No selected frames in pool yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Training Jobs -->
+        <div class="training-status" style="padding: 20px; background: #1e1e1e; border-radius: 8px;">
+          <h3 style="color: #fff; margin-top: 0; margin-bottom: 15px; font-size: 16px;">Training Jobs</h3>
+          <div id="jobs-container">
+            <p style="color: #888;">No training jobs yet. Train after labeling/selection.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Workflow Progress Bar -->
+    <section class="card">
+      <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="color: #fff; margin: 0; font-size: 18px;">Workflow Progress</h2>
+        <div id="workflow-progress-text" style="color: #aaa; font-size: 14px;">0/4 steps completed</div>
+      </div>
+      <div id="workflow-progress-bar" class="workflow-progress-container">
+        <!-- Progress bar will be generated by JavaScript -->
+        <div class="workflow-progress-steps">
+          <div class="workflow-step" data-step="step-1">
+            <div class="step-indicator">
+              <div class="step-number">1</div>
+              <div class="step-icon">✓</div>
+            </div>
+            <div class="step-label">Upload Video</div>
+            <div class="step-status" id="step-1-status-badge">Not started</div>
+          </div>
+          <div class="workflow-connector"></div>
+          <div class="workflow-step" data-step="step-2">
+            <div class="step-indicator">
+              <div class="step-number">2</div>
+              <div class="step-icon">✓</div>
+            </div>
+            <div class="step-label">Label Holds</div>
+            <div class="step-status" id="step-2-status-badge">Not started</div>
+          </div>
+          <div class="workflow-connector"></div>
+          <div class="workflow-step" data-step="step-3">
+            <div class="step-indicator">
+              <div class="step-number">3</div>
+              <div class="step-icon">✓</div>
+            </div>
+            <div class="step-label">Key Frame Selection</div>
+            <div class="step-status" id="step-3-status-badge">Not started</div>
+          </div>
+          <div class="workflow-connector"></div>
+          <div class="workflow-step" data-step="step-4">
+            <div class="step-indicator">
+              <div class="step-number">4</div>
+              <div class="step-icon">✓</div>
+            </div>
+            <div class="step-label">Upload to GCS</div>
+            <div class="step-status" id="step-4-status-badge">Not started</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top: 0;">
       <div class="workflow-container">
         <div class="workflow-steps">
           <!-- Step 1: Upload Video -->
@@ -49,8 +193,14 @@
             </div>
 
             <div class="form-group">
-              <label>Video File</label>
-              <input type="file" id="video-file" accept="video/*">
+              <label>Video File <span style="color: var(--danger);">*</span></label>
+              <div class="drag-drop-zone drag-drop-zone-emphasized" id="drag-drop-zone">
+                <input type="file" id="video-file" accept="video/*">
+                <div class="drag-drop-icon">📹</div>
+                <div class="drag-drop-text">Drag & Drop video file here</div>
+                <div class="drag-drop-hint">or click to browse</div>
+              </div>
+
               <!-- Video preview section -->
               <div id="video-preview-container" class="video-preview-container" style="display: none;">
                 <div class="preview-meta">
@@ -60,40 +210,14 @@
                 <div class="preview-frame">
                   <img id="first-frame-preview" src="" alt="First frame">
                 </div>
-                <!-- 3D Conversion temporarily disabled -->
-                <!--
-                <div style="margin-top: 15px; display: flex; gap: 10px;">
-                  <button id="btn-convert-to-3d" type="button" 
-                    style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;">
-                    🎨 Convert to 3D
-                  </button>
-                </div>
-                <div id="status-3d-conversion" style="display: none; margin-top: 10px; padding: 10px; border-radius: 4px; font-size: 12px;"></div>
-                -->
               </div>
-              
-              <!-- 3D Viewer section (temporarily disabled) -->
-              <!--
-              <div id="3d-viewer-container" class="viewer-3d-container" style="display: none; margin-top: 20px;">
-                <div style="border-top: 1px solid #333; padding-top: 20px;">
-                  <h3 style="color: #fff; margin-bottom: 15px;">3D Model Viewer</h3>
-                  <div id="three-viewer" style="width: 100%; height: 500px; background: #1a1a1a; border-radius: 4px; border: 1px solid #333;"></div>
-                  <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-                    <button id="btn-close-3d-viewer" type="button"
-                      style="padding: 8px 16px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                      Close Viewer
-                    </button>
-                    <span id="3d-model-info" style="color: #aaa; font-size: 12px;"></span>
-                  </div>
-                </div>
-              </div>
-              -->
             </div>
 
             <div class="form-grid">
               <div class="form-group">
                 <label>Hold Color <span style="font-size: 11px; color: #888;">(Optional)</span></label>
                 <select id="hold-color">
+                  <option value="" selected>Not selected</option>
                   <option value="red">🔴 Red</option>
                   <option value="blue">🔵 Blue</option>
                   <option value="green">🟢 Green</option>
@@ -105,7 +229,8 @@
               <div class="form-group">
                 <label>Route Difficulty <span style="font-size: 11px; color: #888;">(Optional)</span></label>
                 <select id="route-difficulty">
-                  <option value="pink">🟩 Pink (Easier)</option>
+                  <option value="" selected>Not selected</option>
+                  <option value="pink">🟪 Pink (Easier)</option>
                   <option value="black">⬛ Black</option>
                   <option value="yellow">🟨 Yellow</option>
                   <option value="orange">🟧 Orange</option>
@@ -118,13 +243,69 @@
             </div>
 
             <div class="step-actions">
-              <button id="btn-extract-frames">🔍 Start Segmentation</button>
+              <button id="btn-extract-frames" class="btn-primary" style="width: 100%;" disabled>Upload & Start
+                Analysis</button>
             </div>
             <div id="status-step-1" class="step-status" style="display: none;"></div>
+          </div>
 
-            <!-- Frame Selection UI (hidden by default) -->
+          <!-- Step 2: SAM Labeling -->
+          <div id="step-2" class="step-card" style="display: none;">
+            <div class="step-header">
+              <div class="step-number">2</div>
+              <div class="step-title">Label Holds (SAM)</div>
+            </div>
+            <div class="step-content">
+              Annotate holds on the first frame using SAM segmentation.
+            </div>
+            <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
+              <div style="border-top: 1px solid var(--border-color); padding-top: 20px;">
+                <div style="display: flex; gap: 20px; align-items: flex-start;">
+                  <!-- Left: Image/Canvas -->
+                  <div
+                    style="flex: 1 1 60%; min-width: 60%; background: #2a2a2a; padding: 5px; border-radius: 4px; position: relative; overflow: auto; display: flex; align-items: flex-start; justify-content: center;">
+                    <div
+                      style="background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: visible; position: relative; width: 100%;">
+                      <img id="hold-labeling-frame" src=""
+                        style="max-width: 100%; height: auto; object-fit: contain; display: none;">
+                      <canvas id="hold-labeling-canvas"
+                        style="max-width: 100%; height: auto; object-fit: contain; cursor: crosshair; display: block;"></canvas>
+                      <div id="sam-loading"
+                        style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 16px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 4px; z-index: 10;">
+                        Running SAM segmentation...
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Right: Segment Cards -->
+                  <div style="flex: 1 1 40%; display: flex; flex-direction: column; gap: 15px;">
+                    <div id="segments-list"
+                      style="flex: 1; max-height: 80vh; overflow-y: auto; background: #1e1e1e; padding: 15px; border-radius: 4px;">
+                      <!-- Segments with dropdowns will be inserted here -->
+                      <p style="color: #888; text-align: center; margin: 0;">Waiting for SAM segmentation...</p>
+                    </div>
+                    <button id="btn-submit-holds" class="btn-primary"
+                      style="width: 100%; padding: 14px; display: none;">
+                      ✓ Submit Labels
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="status-step-2" class="step-status" style="display: none;"></div>
+          </div>
+
+          <!-- Step 3: Key Frame Selection -->
+          <div id="step-3" class="step-card" style="display: none;">
+            <div class="step-header">
+              <div class="step-number">3</div>
+              <div class="step-title">Key Frame Selection</div>
+            </div>
+            <div class="step-content">
+              Select key frames for training the frame selector model.
+            </div>
+            <!-- Frame Selection UI (moved from Step 1) -->
             <div id="frame-selection-ui" style="display: none; margin-top: 20px;">
-              <div style="border-top: 1px solid #333; padding-top: 20px;">
+              <div style="border-top: 1px solid var(--border-color); padding-top: 20px;">
                 <h3 style="color: #fff; margin-bottom: 15px;">Manual Frame Selection</h3>
                 <div style="background: #2a2a2a; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -185,7 +366,7 @@
                         <div style="aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;">
                           <img id="frame-preview-current-horizontal" src=""
                             style="width: 100%; height: 100%; object-fit: contain;">
-                          <div id="frame-selected-badge"
+                          <div id="frame-selected-badge-horizontal"
                             style="display: none; position: absolute; top: 10px; right: 10px; background: #0066cc; color: white; padding: 5px 10px; border-radius: 4px; font-weight: bold;">
                             ✓ SELECTED
                           </div>
@@ -223,85 +404,22 @@
                   </div>
                 </div>
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
-                  <button id="btn-save-to-pool"
-                    style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  <button id="btn-save-to-pool" class="btn-primary"
+                    style="flex: 1; padding: 12px; background: #0066cc;">
                     💾 Save to Training Pool
                   </button>
-                  <button id="btn-train-frame-selector"
-                    style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  <button id="btn-train-frame-selector" class="btn-primary"
+                    style="flex: 1; padding: 12px; background: #00cc66;">
                     🚀 Train Now (Current Video)
                   </button>
                 </div>
-                <div id="training-pool-info"
-                  style="margin-top: 10px; padding: 10px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa;">
-                  <strong>Training Pool:</strong> <span id="pool-video-count">0</span> videos, <span
-                    id="pool-frame-count">0</span> frames
-                </div>
               </div>
-            </div>
-          </div>
-
-          <!-- Step 2: SAM Labeling -->
-          <div id="step-2" class="step-card">
-            <div class="step-header">
-              <div class="step-number">2</div>
-              <div class="step-title">Label Holds (SAM)</div>
-            </div>
-            <div class="step-content">
-              Annotate holds on the first frame using SAM segmentation.
-            </div>
-            <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
-              <div style="border-top: 1px solid #333; padding-top: 20px;">
-                <div style="background: #2a2a2a; padding: 20px; border-radius: 4px; margin-bottom: 20px;">
-                  <div
-                    style="aspect-ratio: 16/9; background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; overflow: hidden;">
-                    <img id="hold-labeling-frame" src="" style="width: 100%; height: 100%; object-fit: contain;">
-                  </div>
-                  <p style="color: #aaa; font-size: 13px; margin-bottom: 15px;">
-                    Click below to start SAM segmentation on this frame. Each segment will be assigned a hold type.
-                  </p>
-                  <button id="btn-open-sam-labeler"
-                    style="width: 100%; padding: 14px; background: #ff6600; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: background 0.2s;">
-                    🎯 Start Segmentation
-                  </button>
-                </div>
-                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                  <button id="btn-save-holds-to-pool"
-                    style="flex: 1; padding: 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
-                    💾 Save Holds to Pool
-                  </button>
-                  <button id="btn-train-yolo"
-                    style="flex: 1; padding: 12px; background: #00cc66; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
-                    🚀 Train YOLO (All Pool)
-                  </button>
-                </div>
-                <div id="holds-pool-info"
-                  style="margin-top: 15px; padding: 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #0066cc;">
-                  <strong style="color: #0066cc;">Holds Pool:</strong> <span id="pool-holds-count">0</span> labeled sets
-                </div>
-              </div>
-            </div>
-            <div id="status-step-2" class="step-status" style="display: none;"></div>
-          </div>
-
-          <!-- Step 3: YOLO Training -->
-          <div id="step-3" class="step-card">
-            <div class="step-header">
-              <div class="step-number">3</div>
-              <div class="step-title">Key Frame Selection</div>
-            </div>
-            <div class="step-content">
-              Required: select key frames (or run the selector) to drive the analysis.
-            </div>
-            <div style="padding: 15px; background: #2a2a2a; border-radius: 4px; color: #aaa;">
-              <p>Frame selection learning is available during the frame extraction step (Step 1 - Frame Selection mode).
-              </p>
             </div>
             <div id="status-step-3" class="step-status" style="display: none;"></div>
           </div>
 
           <!-- Step 4: Upload to GCS -->
-          <div id="step-4" class="step-card">
+          <div id="step-4" class="step-card" style="display: none;">
             <div class="step-header">
               <div class="step-number">4</div>
               <div class="step-title">Upload to GCS</div>
@@ -310,38 +428,26 @@
               Upload the trained YOLO model to Google Cloud Storage for deployment.
             </div>
             <div class="step-actions">
-              <button id="btn-upload-gcs" disabled>Upload Model</button>
+              <button id="btn-upload-gcs" class="btn-primary" disabled>Upload Model</button>
             </div>
             <div id="status-step-4" class="step-status" style="display: none;"></div>
-          </div>
-        </div>
-
-        <!-- Active Sessions -->
-        <div class="session-list">
-          <h2 style="color: #fff; margin-top: 0;">Labeling Sessions</h2>
-          <div id="sessions-container">
-            <p style="color: #888;">No sessions yet. Start segmentation to create one.</p>
-          </div>
-        </div>
-
-        <!-- Training Jobs -->
-        <div class="training-status">
-          <h2 style="color: #fff; margin-top: 0;">Training Jobs</h2>
-          <div id="jobs-container">
-            <p style="color: #888;">No training jobs yet. Train after labeling/selection.</p>
           </div>
         </div>
       </div>
     </section>
   </main>
-  <!-- Three.js libraries (temporarily disabled) -->
-  <!--
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://threejs.org/examples/js/loaders/OBJLoader.js"></script>
-  <script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
-  <script src="/static/three-viewer.js"></script>
-  -->
+
+  <!-- Workflow Modules (load in order) -->
+  <script src="/static/workflow/utils.js"></script>
+  <script src="/static/workflow/state.js"></script>
+  <script src="/static/workflow/video-preview.js"></script>
+  <script src="/static/workflow/dashboard.js"></script>
+  <script src="/static/workflow/steps.js"></script>
+  <script src="/static/workflow/frame-selection.js"></script>
+  <script src="/static/workflow/hold-labeling.js"></script>
+  <script src="/static/workflow/training-pool.js"></script>
+  <script src="/static/workflow/training-jobs.js"></script>
+  <script src="/static/workflow/summary.js"></script>
   <script src="/static/workflow.js"></script>
 </body>
 
