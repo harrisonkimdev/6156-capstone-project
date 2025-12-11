@@ -88,6 +88,9 @@ class SamAnnotator:
         pred_iou_thresh: float = 0.86,
         stability_score_thresh: float = 0.90,
         min_mask_region_area: int = 50,
+        edge_filter_enabled: bool = True,
+        edge_strength_thresh: Optional[float] = None,
+        edge_kernel_size: int = 3,
     ):
         """Initialize SAM annotator.
         
@@ -99,6 +102,9 @@ class SamAnnotator:
             pred_iou_thresh: Predicted IoU threshold for filtering masks
             stability_score_thresh: Stability score threshold for filtering masks
             min_mask_region_area: Minimum mask area in pixels
+            edge_filter_enabled: Whether to filter out low-edge (chalk-like) segments
+            edge_strength_thresh: Optional absolute threshold for mean edge magnitude
+            edge_kernel_size: Kernel size for edge detector (Sobel)
         """
         self.model_type = model_type
         self.checkpoint_path = checkpoint_path
@@ -107,6 +113,9 @@ class SamAnnotator:
         self.pred_iou_thresh = pred_iou_thresh
         self.stability_score_thresh = stability_score_thresh
         self.min_mask_region_area = min_mask_region_area
+        self.edge_filter_enabled = edge_filter_enabled
+        self.edge_strength_thresh = edge_strength_thresh
+        self.edge_kernel_size = edge_kernel_size
         
         self.sam = None
         self.mask_generator = None
@@ -202,12 +211,37 @@ class SamAnnotator:
             LOGGER.error("SAM inference failed: %s", exc)
             raise
         
+        num_masks_before_filter = len(masks)
+        LOGGER.info("SAM generated %d initial masks for %s", num_masks_before_filter, image_path.name)
+        
         # Get image dimensions for filtering
         img_height, img_width = image_rgb.shape[:2]
         img_area = img_height * img_width
+        gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
+        # Global edge map for dynamic threshold
+        grad_x_full = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=self.edge_kernel_size)
+        grad_y_full = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=self.edge_kernel_size)
+        edge_mag_full = cv2.magnitude(grad_x_full, grad_y_full)
+        global_edge_mean = float(edge_mag_full.mean()) if edge_mag_full.size else 0.0
+        # Dynamic default threshold: conservative (keep most, drop very low-edge regions)
+        dynamic_edge_thresh = global_edge_mean * 0.8
+        edge_thresh = (
+            float(self.edge_strength_thresh)
+            if self.edge_strength_thresh is not None
+            else dynamic_edge_thresh
+        )
+        
+        if self.edge_filter_enabled:
+            LOGGER.info(
+                "Edge filter enabled: threshold=%.3f (global_mean=%.3f, dynamic=%.3f)",
+                edge_thresh,
+                global_edge_mean,
+                dynamic_edge_thresh,
+            )
         
         # Convert SAM output to SamSegment objects with filtering
         segments = []
+        edge_filtered_count = 0
         for idx, mask_data in enumerate(masks):
             segment_id = f"{image_path.stem}_seg_{idx:04d}"
             
@@ -242,6 +276,23 @@ class SamAnnotator:
             if bbox_area > 0 and area / bbox_area < 0.3 and perimeter > min(img_width, img_height) * 0.5:
                 continue
             
+            # 5. Edge-strength filter to drop chalk-like smudges (weak boundaries)
+            if self.edge_filter_enabled and edge_thresh > 0:
+                mask_bool = mask.astype(bool)
+                if mask_bool.any():
+                    # Compute mean edge magnitude within mask
+                    masked_edges = edge_mag_full[mask_bool]
+                    mean_edge = float(masked_edges.mean()) if masked_edges.size else 0.0
+                    if mean_edge < edge_thresh:
+                        edge_filtered_count += 1
+                        LOGGER.debug(
+                            "Dropping segment %s for low edge strength (%.3f < %.3f)",
+                            segment_id,
+                            mean_edge,
+                            edge_thresh,
+                        )
+                        continue
+            
             segment = SamSegment(
                 segment_id=segment_id,
                 mask=mask,
@@ -252,7 +303,18 @@ class SamAnnotator:
             )
             segments.append(segment)
         
-        LOGGER.info("Generated %d segments (filtered from %d) for %s", len(segments), len(masks), image_path.name)
+        num_segments_after = len(segments)
+        filter_summary = f"size/geometry: {num_masks_before_filter - num_segments_after - edge_filtered_count}"
+        if self.edge_filter_enabled:
+            filter_summary += f", edge: {edge_filtered_count}"
+        
+        LOGGER.info(
+            "Generated %d segments (filtered from %d: %s) for %s",
+            num_segments_after,
+            num_masks_before_filter,
+            filter_summary,
+            image_path.name,
+        )
         return segments
     
     def segment_batch(

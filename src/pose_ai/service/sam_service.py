@@ -44,6 +44,8 @@ class SamService:
         sam_checkpoint: Optional[Path] = None,
         device: str = "cpu",
         cache_dir: Optional[Path] = None,
+        edge_filter_enabled: bool = True,
+        edge_strength_thresh: Optional[float] = None,
     ):
         """Initialize SAM service.
         
@@ -51,10 +53,14 @@ class SamService:
             sam_checkpoint: Path to SAM model checkpoint
             device: Device to run inference on (cpu, cuda, mps)
             cache_dir: Directory to cache segment data
+            edge_filter_enabled: Whether to filter out low-edge (chalk-like) segments
+            edge_strength_thresh: Optional absolute threshold for mean edge magnitude
         """
         self.sam_checkpoint = sam_checkpoint
         self.device = device
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.edge_filter_enabled = edge_filter_enabled
+        self.edge_strength_thresh = edge_strength_thresh
         
         self.annotator: Optional[SamAnnotator] = None
         self._segments_cache: Dict[str, List[SamSegment]] = {}
@@ -76,9 +82,15 @@ class SamService:
             model_type="vit_b",  # Default to base model for speed
             checkpoint_path=checkpoint,
             device=self.device,
+            edge_filter_enabled=self.edge_filter_enabled,
+            edge_strength_thresh=self.edge_strength_thresh,
         )
         self.annotator.initialize()
-        LOGGER.info("SamService initialized with checkpoint: %s", checkpoint)
+        LOGGER.info(
+            "SamService initialized with checkpoint: %s (edge_filter=%s)",
+            checkpoint,
+            self.edge_filter_enabled,
+        )
     
     def is_ready(self) -> bool:
         """Check if service is ready to use."""
