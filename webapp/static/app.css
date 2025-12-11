@@ -417,16 +417,54 @@ tr:hover td {
 }
 
 .step-actions {
-  padding-left: 48px;
+  padding-left: 0;
 }
 
 .step-status {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 0.9rem;
+  margin-top: 16px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
   background-color: var(--bg-body);
   border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.step-status.info {
+  background-color: rgba(0, 102, 204, 0.15);
+  border-color: #0066cc;
+  color: #58a6ff;
+}
+
+.step-status.success {
+  background-color: rgba(46, 160, 67, 0.15);
+  border-color: #4ec970;
+  color: #4ec970;
+}
+
+.step-status.error {
+  background-color: rgba(218, 54, 51, 0.15);
+  border-color: #f85149;
+  color: #f85149;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(88, 166, 255, 0.3);
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Utilities */

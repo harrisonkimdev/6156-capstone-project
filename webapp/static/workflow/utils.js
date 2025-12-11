@@ -13,9 +13,14 @@
 function showStatus(stepId, message, type) {
   const el = document.getElementById(`status-${stepId}`);
   if (el) {
-    el.textContent = message;
+    // info 타입일 때 로딩 스피너 추가
+    if (type === 'info') {
+      el.innerHTML = `<span class="loading-spinner"></span>${message}`;
+    } else {
+      el.textContent = message;
+    }
     el.className = `step-status ${type}`;
-    el.style.display = 'block';
+    el.style.display = 'flex';
   }
 }
 
