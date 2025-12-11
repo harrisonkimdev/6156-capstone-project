@@ -1245,7 +1245,7 @@ input[type="file"] {
 }
 
 .workflow-step-card.active {
-  border-color: var(--primary);
+  border-color: #0066cc;
   background-color: rgba(0, 102, 204, 0.1);
   box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.3);
 }

@@ -345,18 +345,9 @@ function highlightSelectedSegment(segmentId) {
       selectedItem.style.borderLeft = selectedItem.style.border;
       selectedItem.style.backgroundColor = 'rgba(0, 102, 204, 0.15)';
       selectedItem.style.boxShadow = '0 0 0 2px rgba(0, 102, 204, 0.3)';
-      
-      // Scroll into view
-      selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      
-      // 카드 높이만큼 추가 스크롤
-      setTimeout(() => {
-        const cardHeight = selectedItem.offsetHeight;
-        const segmentsList = document.getElementById('segments-list');
-        if (segmentsList) {
-          segmentsList.scrollBy({ top: cardHeight, behavior: 'smooth' });
-        }
-      }, 300); // scrollIntoView 애니메이션 완료 후 실행
+
+      // Scroll into view - block: 'center'로 변경하여 카드가 중앙에 오도록
+      selectedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
 }

@@ -59,27 +59,34 @@ function navigateToStep(stepId) {
 function getStepStatus(stepId) {
   switch (stepId) {
     case 'step-1':
-      // Step 1 is completed if video is uploaded, otherwise not-started
-      // In-progress only if there's actual upload/processing happening (handled by status updates)
-      return WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName() ? 'completed' : 'not-started';
+      // 비디오가 업로드되어 있으면 completed
+      if (WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
+        return 'completed';
+      }
+      // 비디오 파일이 선택되어 있으면 in-progress (업로드/분석 진행 중)
+      const videoFileInput = document.getElementById('video-file');
+      if (videoFileInput && videoFileInput.files && videoFileInput.files.length > 0) {
+        return 'in-progress';
+      }
+      return 'not-started';
     case 'step-2':
       const segments = WorkflowState.getHoldLabelingSegments();
       // segments가 없으면 not-started
       if (segments.length === 0) {
         const labelingUI = document.getElementById('hold-labeling-ui');
-        if (labelingUI && labelingUI.style.display !== 'none' && 
-            WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
+        if (labelingUI && labelingUI.style.display !== 'none' &&
+          WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
           return 'in-progress'; // SAM segmentation 진행 중
         }
         return 'not-started';
       }
-      
+
       // segments가 있으면 모든 segments에 hold_type이 설정되었는지 확인
       const allLabeled = segments.every(seg => seg.hold_type && seg.hold_type !== '');
       if (allLabeled) {
         return 'completed';
       }
-      
+
       // segments가 있지만 아직 labeling이 완료되지 않음
       return 'in-progress';
     case 'step-3':
