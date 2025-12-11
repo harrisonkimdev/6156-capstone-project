@@ -125,7 +125,7 @@ function handleVideoFileSelection(event) {
 function updateVideoPreview() {
   const holdColorSelect = document.getElementById('hold-color');
   const routeDifficultySelect = document.getElementById('route-difficulty');
-  
+
   if (holdColorSelect) {
     WorkflowState.setHoldColor(holdColorSelect.value);
   }

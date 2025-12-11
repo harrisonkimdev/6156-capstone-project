@@ -330,17 +330,33 @@ function handleCanvasClick(event) {
 function highlightSelectedSegment(segmentId) {
   // Remove previous highlights
   document.querySelectorAll('.segment-item').forEach(item => {
-    item.style.border = item.style.borderLeft; // Reset to original border
+    // 원래 스타일로 복원
+    item.style.border = item.style.borderLeft;
+    item.style.backgroundColor = '';
+    item.style.boxShadow = '';
   });
 
   // Highlight selected segment
   if (segmentId) {
     const selectedItem = document.querySelector(`[data-segment-id="${segmentId}"]`);
     if (selectedItem) {
-      selectedItem.style.border = '3px solid #0066cc';
+      // 하이라이트 스타일 적용
+      selectedItem.style.border = '4px solid #0066cc';
       selectedItem.style.borderLeft = selectedItem.style.border;
+      selectedItem.style.backgroundColor = 'rgba(0, 102, 204, 0.15)';
+      selectedItem.style.boxShadow = '0 0 0 2px rgba(0, 102, 204, 0.3)';
+      
       // Scroll into view
       selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      
+      // 카드 높이만큼 추가 스크롤
+      setTimeout(() => {
+        const cardHeight = selectedItem.offsetHeight;
+        const segmentsList = document.getElementById('segments-list');
+        if (segmentsList) {
+          segmentsList.scrollBy({ top: cardHeight, behavior: 'smooth' });
+        }
+      }, 300); // scrollIntoView 애니메이션 완료 후 실행
     }
   }
 }

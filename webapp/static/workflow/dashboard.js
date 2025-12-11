@@ -63,21 +63,25 @@ function getStepStatus(stepId) {
       // In-progress only if there's actual upload/processing happening (handled by status updates)
       return WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName() ? 'completed' : 'not-started';
     case 'step-2':
-      // Step 2 is completed if segments exist
-      // In-progress only if video is uploaded but segments not yet created (actual work in progress)
-      if (WorkflowState.getHoldLabelingSegments().length > 0) {
+      const segments = WorkflowState.getHoldLabelingSegments();
+      // segments가 없으면 not-started
+      if (segments.length === 0) {
+        const labelingUI = document.getElementById('hold-labeling-ui');
+        if (labelingUI && labelingUI.style.display !== 'none' && 
+            WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
+          return 'in-progress'; // SAM segmentation 진행 중
+        }
+        return 'not-started';
+      }
+      
+      // segments가 있으면 모든 segments에 hold_type이 설정되었는지 확인
+      const allLabeled = segments.every(seg => seg.hold_type && seg.hold_type !== '');
+      if (allLabeled) {
         return 'completed';
       }
-      // Only in-progress if step-1 is completed (video uploaded) but segments not yet created
-      // This means work is actually in progress, not just viewing the step
-      if (WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
-        // Check if there's actual labeling UI visible (meaning work has started)
-        const labelingUI = document.getElementById('hold-labeling-ui');
-        if (labelingUI && labelingUI.style.display !== 'none') {
-          return 'in-progress';
-        }
-      }
-      return 'not-started';
+      
+      // segments가 있지만 아직 labeling이 완료되지 않음
+      return 'in-progress';
     case 'step-3':
       // Step 3 is completed if sessionId exists
       // In-progress only if video is uploaded and frame selection UI is active
