@@ -506,6 +506,9 @@ async function submitHoldLabels() {
     const data = await response.json();
     showStatus('step-2', 'Labels saved successfully!', 'success');
     setStepCompleted('step-2');
+    if (typeof updateDashboardStatus === 'function') {
+      updateDashboardStatus();
+    }
 
     // Show Step 3 and scroll to it
     const step3 = document.getElementById('step-3');

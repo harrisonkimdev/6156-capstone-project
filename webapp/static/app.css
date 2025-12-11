@@ -558,6 +558,25 @@ tr:hover td {
   color: #f85149;
 }
 
+/* Status colors inherit from parent card state */
+.workflow-step-card.active .step-status {
+  background-color: rgba(0, 102, 204, 0.15);
+  border-color: #0066cc;
+  color: #58a6ff;
+}
+
+.workflow-step-card.completed .step-status {
+  background-color: rgba(46, 160, 67, 0.15);
+  border-color: #4ec970;
+  color: #4ec970;
+}
+
+.workflow-step-card.in-progress .step-status {
+  background-color: rgba(255, 149, 0, 0.15);
+  border-color: #ff9500;
+  color: #ff9500;
+}
+
 .loading-spinner {
   width: 16px;
   height: 16px;
