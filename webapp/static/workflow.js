@@ -329,9 +329,9 @@ function setupTrainingPoolToggle() {
     }
   }
 
-  // Initial state - default to showing (since content is now visible by default)
-  toggle.checked = true;
-  updateToggleState(true);
+  // Initial state - default to hiding (content hidden by default)
+  toggle.checked = false;
+  updateToggleState(false);
 
   // Handle toggle change - label naturally toggles checkbox, we just update UI
   toggle.addEventListener('change', (e) => {
