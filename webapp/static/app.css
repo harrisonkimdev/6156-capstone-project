@@ -380,6 +380,12 @@ tr:hover td {
   margin-bottom: 16px;
 }
 
+.step-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .step-number {
   width: 32px;
   height: 32px;

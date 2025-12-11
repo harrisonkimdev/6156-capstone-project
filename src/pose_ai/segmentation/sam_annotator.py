@@ -224,7 +224,7 @@ class SamAnnotator:
         edge_mag_full = cv2.magnitude(grad_x_full, grad_y_full)
         global_edge_mean = float(edge_mag_full.mean()) if edge_mag_full.size else 0.0
         # Dynamic default threshold: conservative (keep most, drop very low-edge regions)
-        dynamic_edge_thresh = global_edge_mean * 0.8
+        dynamic_edge_thresh = global_edge_mean * 0.9
         edge_thresh = (
             float(self.edge_strength_thresh)
             if self.edge_strength_thresh is not None
@@ -256,8 +256,8 @@ class SamAnnotator:
             area = int(mask_data["area"])
             
             # Filter out segments that are likely walls or large backgrounds
-            # 1. Too large (> 10% of image) - likely wall or background
-            if area > img_area * 0.1:
+            # 1. Too large (> 15% of image) - likely wall or background
+            if area > img_area * 0.15:
                 continue
             
             # 2. Extremely elongated (likely wall edges/boundaries)

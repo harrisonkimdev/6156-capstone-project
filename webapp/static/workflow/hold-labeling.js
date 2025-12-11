@@ -308,49 +308,65 @@ function handleCanvasClick(event) {
     }
   }
 
-  // Select the clicked segment
+  // Select the clicked segment (support multi-select with Shift)
   if (clickedSegment) {
-    WorkflowState.selectedSegmentId = clickedSegment.segment_id;
-    // Highlight the selected segment in the dropdown list
-    highlightSelectedSegment(clickedSegment.segment_id);
-    // Re-render to show selection
+    const selectedSet = WorkflowState.selectedSegmentIds || new Set();
+    if (event.shiftKey) {
+      if (selectedSet.has(clickedSegment.segment_id)) {
+        selectedSet.delete(clickedSegment.segment_id);
+      } else {
+        selectedSet.add(clickedSegment.segment_id);
+      }
+      WorkflowState.selectedSegmentIds = selectedSet;
+      WorkflowState.selectedSegmentId = clickedSegment.segment_id; // keep single for compatibility
+    } else {
+      selectedSet.clear();
+      selectedSet.add(clickedSegment.segment_id);
+      WorkflowState.selectedSegmentIds = selectedSet;
+      WorkflowState.selectedSegmentId = clickedSegment.segment_id;
+    }
+    highlightSelectedSegments(clickedSegment.segment_id);
     renderSegmentsWithDropdowns();
   } else {
-    // Deselect if clicked outside
-    WorkflowState.selectedSegmentId = null;
-    highlightSelectedSegment(null);
+    // Deselect if clicked outside (unless holding shift)
+    if (!event.shiftKey && WorkflowState.selectedSegmentIds) {
+      WorkflowState.selectedSegmentIds.clear();
+      WorkflowState.selectedSegmentId = null;
+    }
+    highlightSelectedSegments(null);
     renderSegmentsWithDropdowns();
   }
 }
 
 /**
- * Highlight selected segment in the dropdown list
- * @param {string|null} segmentId - Segment ID or null
+ * Highlight selected segments in the dropdown list (supports multi-select)
+ * @param {string|null} scrollToId - Segment ID to scroll into view (last clicked), or null
  */
-function highlightSelectedSegment(segmentId) {
+function highlightSelectedSegments(scrollToId = null) {
+  const selectedSet = WorkflowState.selectedSegmentIds || new Set();
+
   // Remove previous highlights
   document.querySelectorAll('.segment-item').forEach(item => {
-    // 원래 스타일로 복원
     item.style.border = item.style.borderLeft;
     item.style.backgroundColor = '';
     item.style.boxShadow = '';
   });
 
-  // Highlight selected segment
-  if (segmentId) {
-    const selectedItem = document.querySelector(`[data-segment-id="${segmentId}"]`);
+  // Highlight selected segments
+  selectedSet.forEach(id => {
+    const selectedItem = document.querySelector(`[data-segment-id="${id}"]`);
     if (selectedItem) {
-      // 하이라이트 스타일 적용
       selectedItem.style.border = '4px solid #0066cc';
       selectedItem.style.borderLeft = selectedItem.style.border;
       selectedItem.style.backgroundColor = 'rgba(0, 102, 204, 0.15)';
-      // Glow effect를 더 강하게 - 여러 레이어의 그림자 추가
       selectedItem.style.boxShadow = '0 0 0 2px rgba(0, 102, 204, 0.3), 0 0 20px rgba(0, 102, 204, 0.5), 0 0 40px rgba(0, 102, 204, 0.3)';
 
-      // Scroll into view - block: 'center'로 변경하여 카드가 중앙에 오도록
-      selectedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Scroll into view for the last clicked
+      if (scrollToId && scrollToId === id) {
+        selectedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
-  }
+  });
 }
 
 /**
@@ -372,7 +388,9 @@ function renderSegmentsWithDropdowns() {
   segments.forEach((segment, idx) => {
     const [x1, y1, x2, y2] = segment.bbox;
     const color = SEGMENT_COLORS[idx % SEGMENT_COLORS.length];
-    const isSelected = segment.segment_id === WorkflowState.selectedSegmentId;
+    const isSelected =
+      (WorkflowState.selectedSegmentIds && WorkflowState.selectedSegmentIds.has(segment.segment_id)) ||
+      segment.segment_id === WorkflowState.selectedSegmentId;
 
     // Draw bounding box with thicker border if selected
     ctx.strokeStyle = isSelected ? '#0066cc' : color;
