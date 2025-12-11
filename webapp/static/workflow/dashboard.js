@@ -8,24 +8,11 @@
  * Setup dashboard progress bar click handlers
  */
 function setupDashboard() {
-  const workflowSteps = document.querySelectorAll('.workflow-step');
+  const workflowSteps = document.querySelectorAll('.workflow-step-card');
   workflowSteps.forEach(step => {
     step.addEventListener('click', () => {
       const stepId = step.dataset.step;
       navigateToStep(stepId);
-    });
-
-    // Add hover effect
-    step.addEventListener('mouseenter', () => {
-      if (!step.classList.contains('active')) {
-        step.style.opacity = '0.8';
-      }
-    });
-
-    step.addEventListener('mouseleave', () => {
-      if (!step.classList.contains('active')) {
-        step.style.opacity = '1';
-      }
     });
   });
 
@@ -72,25 +59,45 @@ function navigateToStep(stepId) {
 function getStepStatus(stepId) {
   switch (stepId) {
     case 'step-1':
+      // Step 1 is completed if video is uploaded, otherwise not-started
+      // In-progress only if there's actual upload/processing happening (handled by status updates)
       return WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName() ? 'completed' : 'not-started';
     case 'step-2':
+      // Step 2 is completed if segments exist
+      // In-progress only if video is uploaded but segments not yet created (actual work in progress)
       if (WorkflowState.getHoldLabelingSegments().length > 0) {
         return 'completed';
       }
-      const step2 = document.getElementById('step-2');
-      return step2 && step2.style.display !== 'none' ? 'in-progress' : 'not-started';
+      // Only in-progress if step-1 is completed (video uploaded) but segments not yet created
+      // This means work is actually in progress, not just viewing the step
+      if (WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
+        // Check if there's actual labeling UI visible (meaning work has started)
+        const labelingUI = document.getElementById('hold-labeling-ui');
+        if (labelingUI && labelingUI.style.display !== 'none') {
+          return 'in-progress';
+        }
+      }
+      return 'not-started';
     case 'step-3':
+      // Step 3 is completed if sessionId exists
+      // In-progress only if video is uploaded and frame selection UI is active
       if (WorkflowState.getCurrentSessionId()) {
         return 'completed';
       }
-      const step3 = document.getElementById('step-3');
-      return step3 && step3.style.display !== 'none' ? 'in-progress' : 'not-started';
+      // Only in-progress if step-1 is completed and frame selection UI is visible (actual work)
+      if (WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
+        const frameSelectionUI = document.getElementById('frame-selection-ui');
+        if (frameSelectionUI && frameSelectionUI.style.display !== 'none') {
+          return 'in-progress';
+        }
+      }
+      return 'not-started';
     case 'step-4':
+      // Step 4 is in-progress if training job exists, otherwise not-started
       if (WorkflowState.getCurrentTrainingJobId()) {
         return 'in-progress';
       }
-      const step4 = document.getElementById('step-4');
-      return step4 && step4.style.display !== 'none' ? 'in-progress' : 'not-started';
+      return 'not-started';
     default:
       return 'not-started';
   }
@@ -101,7 +108,7 @@ function getStepStatus(stepId) {
  * @param {string} activeStepId - Active step ID
  */
 function updateDashboardActiveState(activeStepId) {
-  const workflowSteps = document.querySelectorAll('.workflow-step');
+  const workflowSteps = document.querySelectorAll('.workflow-step-card');
   workflowSteps.forEach(step => {
     const stepId = step.dataset.step;
     const status = getStepStatus(stepId);
@@ -110,10 +117,12 @@ function updateDashboardActiveState(activeStepId) {
     const indicator = step.querySelector('.step-indicator');
     const number = step.querySelector('.step-number');
     const icon = step.querySelector('.step-icon');
-    const statusBadge = step.querySelector('.step-status');
 
     // Reset classes
     step.classList.remove('active', 'completed', 'in-progress', 'not-started', 'error');
+    if (indicator) {
+      indicator.classList.remove('active', 'completed', 'in-progress', 'not-started');
+    }
 
     if (isActive) {
       step.classList.add('active');
@@ -143,20 +152,6 @@ function updateDashboardActiveState(activeStepId) {
         if (number) number.style.display = 'flex';
         if (icon) icon.style.display = 'none';
       }
-    }
-  });
-
-  // Update connectors
-  const connectors = document.querySelectorAll('.workflow-connector');
-  connectors.forEach((connector, index) => {
-    const stepIndex = index + 1;
-    const prevStepStatus = getStepStatus(`step-${stepIndex}`);
-    const nextStepStatus = getStepStatus(`step-${stepIndex + 1}`);
-
-    if (prevStepStatus === 'completed' && nextStepStatus !== 'not-started') {
-      connector.classList.add('completed');
-    } else {
-      connector.classList.remove('completed');
     }
   });
 }

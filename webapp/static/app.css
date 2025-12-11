@@ -1208,43 +1208,72 @@ input[type="file"] {
 
 .workflow-progress-steps {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: relative;
-  padding: 20px 0;
+  gap: 16px;
+  align-items: stretch;
 }
 
-.workflow-step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+.workflow-step-card {
   flex: 1;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
-  z-index: 1;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.workflow-step:hover {
-  opacity: 0.8;
+.workflow-step-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.2);
 }
 
-.workflow-step.active {
-  transform: scale(1.05);
+.workflow-step-card.active {
+  border-color: var(--primary);
+  background-color: rgba(0, 102, 204, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.3);
+}
+
+.workflow-step-card.completed {
+  border-color: var(--success);
+  background-color: rgba(35, 134, 54, 0.1);
+}
+
+.workflow-step-card.in-progress {
+  border-color: var(--warning);
+  background-color: rgba(210, 153, 34, 0.1);
+}
+
+.step-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.step-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
 }
 
 .step-indicator {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   transition: all 0.3s ease;
-  border: 3px solid var(--border-color);
+  border: 2px solid var(--border-color);
   background: var(--bg-hover);
+  flex-shrink: 0;
 }
 
 .step-indicator.active {
@@ -1285,7 +1314,7 @@ input[type="file"] {
 .step-number {
   color: var(--text-secondary);
   font-weight: bold;
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1294,7 +1323,7 @@ input[type="file"] {
 .step-icon {
   color: white;
   font-weight: bold;
-  font-size: 20px;
+  font-size: 18px;
   display: none;
   align-items: center;
   justify-content: center;
@@ -1308,13 +1337,12 @@ input[type="file"] {
 
 .step-label {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  text-align: center;
-  margin-top: 4px;
+  margin: 0;
 }
 
-.workflow-step.active .step-label {
+.workflow-step-card.active .step-label {
   color: #0066cc;
   font-weight: 600;
 }
@@ -1323,9 +1351,10 @@ input[type="file"] {
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 12px;
-  margin-top: 4px;
-  text-align: center;
-  min-width: 80px;
+  margin: 0;
+  text-align: left;
+  display: inline-block;
+  width: fit-content;
 }
 
 .step-status.completed {
@@ -1346,19 +1375,6 @@ input[type="file"] {
   border: 1px solid rgba(110, 118, 129, 0.4);
 }
 
-.workflow-connector {
-  flex: 1;
-  height: 3px;
-  background: var(--border-color);
-  margin: 0 10px;
-  position: relative;
-  top: -24px;
-  transition: all 0.3s ease;
-}
-
-.workflow-connector.completed {
-  background: var(--success);
-}
 
 /* Enhanced Drag Drop Zone */
 .drag-drop-zone-emphasized {
