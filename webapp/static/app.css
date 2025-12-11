@@ -1796,6 +1796,23 @@ input[type="file"] {
   border-bottom: none;
 }
 
+.jobs-table tr.highlight {
+  background-color: rgba(56, 139, 253, 0.2) !important;
+  animation: highlightPulse 2s ease-in-out;
+}
+
+@keyframes highlightPulse {
+
+  0%,
+  100% {
+    background-color: rgba(56, 139, 253, 0.2);
+  }
+
+  50% {
+    background-color: rgba(56, 139, 253, 0.4);
+  }
+}
+
 .btn-cancel-job {
   transition: all 0.2s ease;
 }

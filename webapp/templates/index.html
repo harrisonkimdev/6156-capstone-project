@@ -178,6 +178,7 @@
     </main>
 
     <script src="/static/feedback-widget.js"></script>
+    <script src="/static/job-notifications.js"></script>
     <script>
         const form = document.getElementById("pipeline-form");
         const statusEl = document.getElementById("form-status");
@@ -512,6 +513,34 @@
         if (intervalInput) {
             intervalInput.addEventListener("input", updateIntervalLabel);
             updateIntervalLabel();
+        }
+
+        // Handle job selection from notification
+        window.addEventListener('selectJob', (event) => {
+            const jobId = event.detail.jobId;
+            if (jobId) {
+                selectedJobId = jobId;
+                refreshJobs().then(() => {
+                    loadLogs(jobId);
+                    // Scroll to job in table and highlight it
+                    const row = document.querySelector(`tr[data-job-id="${jobId}"]`);
+                    if (row) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        row.classList.add('highlight');
+                        setTimeout(() => row.classList.remove('highlight'), 2000);
+                    }
+                });
+            }
+        });
+
+        // Handle URL parameter for direct job access
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobIdParam = urlParams.get('job');
+        if (jobIdParam) {
+            selectedJobId = jobIdParam;
+            refreshJobs().then(() => {
+                loadLogs(jobIdParam);
+            });
         }
     </script>
 </body>
