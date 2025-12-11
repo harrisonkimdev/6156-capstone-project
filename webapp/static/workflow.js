@@ -323,23 +323,9 @@ function setupTrainingPoolToggle() {
   toggle.checked = true;
   updateToggleState(true);
 
-  // Handle toggle change
+  // Handle toggle change - label naturally toggles checkbox, we just update UI
   toggle.addEventListener('change', (e) => {
     updateToggleState(e.target.checked);
-  });
-
-  // Also handle click on slider (for better UX)
-  slider.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggle.checked = !toggle.checked;
-    toggle.dispatchEvent(new Event('change'));
-  });
-
-  // Handle click on label
-  label.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggle.checked = !toggle.checked;
-    toggle.dispatchEvent(new Event('change'));
   });
 
   // Add hover effects
