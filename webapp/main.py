@@ -797,17 +797,25 @@ async def _segment_first_frame_with_progress(
         workflow_dir = _get_storage_dir(upload_id, video_name)
         all_frames_dir = workflow_dir / "all_frames"
         
-        if not all_frames_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Frames directory not found: {all_frames_dir}")
-        
-        # Find the first frame
-        frame_path = all_frames_dir / frame_filename
-        if not frame_path.exists():
-            # Try to find first frame if filename doesn't match
-            frame_files = sorted(all_frames_dir.glob("*.jpg"))
-            if not frame_files:
-                raise HTTPException(status_code=404, detail="No frame images found")
-            frame_path = frame_files[0]
+        # Check if frame_filename is a special frame (trimmed/original first frame)
+        # These are stored in the root directory, not in all_frames
+        if frame_filename in ["trimmed_first_frame.jpg", "original_first_frame.jpg"]:
+            frame_path = workflow_dir / frame_filename
+            if not frame_path.exists():
+                raise HTTPException(status_code=404, detail=f"Frame not found: {frame_path}")
+        else:
+            # Regular frames are in all_frames directory
+            if not all_frames_dir.exists():
+                raise HTTPException(status_code=404, detail=f"Frames directory not found: {all_frames_dir}")
+            
+            # Find the first frame
+            frame_path = all_frames_dir / frame_filename
+            if not frame_path.exists():
+                # Try to find first frame if filename doesn't match
+                frame_files = sorted(all_frames_dir.glob("*.jpg"))
+                if not frame_files:
+                    raise HTTPException(status_code=404, detail="No frame images found")
+                frame_path = frame_files[0]
         
         if progress_callback:
             progress_callback({"stage": "checking_checkpoint", "message": "Checking SAM checkpoint..."})
@@ -917,26 +925,39 @@ async def segment_first_frame_stream(
                     workflow_dir = _get_storage_dir(upload_id, video_name)
                     all_frames_dir = workflow_dir / "all_frames"
                     
-                    if not all_frames_dir.exists():
-                        await progress_queue.put({
-                            "stage": "error",
-                            "message": f"Frames directory not found: {all_frames_dir}",
-                            "progress": 0
-                        })
-                        return
-                    
-                    # Find the first frame
-                    frame_path = all_frames_dir / frame_filename
-                    if not frame_path.exists():
-                        frame_files = sorted(all_frames_dir.glob("*.jpg"))
-                        if not frame_files:
+                    # Check if frame_filename is a special frame (trimmed/original first frame)
+                    # These are stored in the root directory, not in all_frames
+                    if frame_filename in ["trimmed_first_frame.jpg", "original_first_frame.jpg"]:
+                        frame_path = workflow_dir / frame_filename
+                        if not frame_path.exists():
                             await progress_queue.put({
                                 "stage": "error",
-                                "message": "No frame images found",
+                                "message": f"Frame not found: {frame_path}",
                                 "progress": 0
                             })
                             return
-                        frame_path = frame_files[0]
+                    else:
+                        # Regular frames are in all_frames directory
+                        if not all_frames_dir.exists():
+                            await progress_queue.put({
+                                "stage": "error",
+                                "message": f"Frames directory not found: {all_frames_dir}",
+                                "progress": 0
+                            })
+                            return
+                        
+                        # Find the first frame
+                        frame_path = all_frames_dir / frame_filename
+                        if not frame_path.exists():
+                            frame_files = sorted(all_frames_dir.glob("*.jpg"))
+                            if not frame_files:
+                                await progress_queue.put({
+                                    "stage": "error",
+                                    "message": "No frame images found",
+                                    "progress": 0
+                                })
+                                return
+                            frame_path = frame_files[0]
                     
                     # Stage 2: Check checkpoint
                     default_checkpoint = ROOT_DIR / "models" / "sam_vit_b_01ec64.pth"
