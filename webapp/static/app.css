@@ -1413,9 +1413,9 @@ input[type="file"] {
 }
 
 .step-status.in-progress {
-  background: rgba(255, 149, 0, 0.2);
-  color: #ff9500;
-  border: 1px solid rgba(255, 149, 0, 0.5);
+  background: rgba(0, 102, 204, 0.15);
+  color: #58a6ff;
+  border: 1px solid #0066cc;
 }
 
 .step-status.not-started {
