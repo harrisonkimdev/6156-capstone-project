@@ -24,6 +24,7 @@ const HOLD_COLORS = [
   { value: 'yellow', label: '🟡 Yellow' },
   { value: 'purple', label: '🟣 Purple' },
   { value: 'black', label: '⚫ Black' },
+  { value: 'white', label: '⚪ White' },
 ];
 
 // Color palette for segments
