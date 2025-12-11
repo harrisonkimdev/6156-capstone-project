@@ -272,47 +272,42 @@
 
           <!-- Step 2: SAM Labeling -->
           <div id="step-2" class="step-card" style="display: none;">
-            <div class="step-header">
-              <div class="step-number">2</div>
-              <div class="step-title">Label Holds (SAM)</div>
+            <div class="step-header label-holds-header">
+              <div class="step-header-left">
+                <div class="step-number">2</div>
+                <div class="step-title">Label Holds (SAM)</div>
+              </div>
+              <div class="label-holds-header-right">
+                <div id="status-step-2" class="step-status" style="display: none;"></div>
+                <button id="btn-submit-holds" class="btn-primary" style="padding: 12px 16px; display: none;">
+                  ✓ Submit Labels
+                </button>
+              </div>
             </div>
             <div class="step-content">
               Annotate holds on the first frame using SAM segmentation.
             </div>
             <div id="hold-labeling-ui" style="display: none; margin-top: 20px;">
-              <div style="border-top: 1px solid var(--border-color); padding-top: 20px;">
-                <div style="display: flex; gap: 20px; align-items: flex-start;">
-                  <!-- Left: Image/Canvas -->
-                  <div
-                    style="flex: 1 1 60%; min-width: 60%; background: #2a2a2a; padding: 5px; border-radius: 4px; position: relative; overflow: auto; display: flex; align-items: flex-start; justify-content: center;">
-                    <div
-                      style="background: #000; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: visible; position: relative; width: 100%;">
-                      <img id="hold-labeling-frame" src=""
-                        style="max-width: 100%; height: auto; object-fit: contain; display: none;">
-                      <canvas id="hold-labeling-canvas"
-                        style="max-width: 100%; height: auto; object-fit: contain; cursor: crosshair; display: block;"></canvas>
-                      <div id="sam-loading"
-                        style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 16px; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 4px; z-index: 10;">
-                        Running SAM segmentation...
-                      </div>
+              <div class="label-holds-body">
+                <!-- Left: Image/Canvas -->
+                <div class="label-holds-left">
+                  <div class="label-holds-canvas-wrapper">
+                    <img id="hold-labeling-frame" src="" class="label-holds-frame" style="display: none;">
+                    <canvas id="hold-labeling-canvas" class="label-holds-canvas"></canvas>
+                    <div id="sam-loading" class="sam-loading-overlay" style="display: none;">
+                      Running SAM segmentation...
                     </div>
                   </div>
-                  <!-- Right: Segment Cards -->
-                  <div style="flex: 1 1 40%; display: flex; flex-direction: column; gap: 15px;">
-                    <div id="segments-list"
-                      style="flex: 1; max-height: 80vh; overflow-y: auto; background: #1e1e1e; padding: 15px; border-radius: 4px;">
-                      <!-- Segments with dropdowns will be inserted here -->
-                      <p style="color: #888; text-align: center; margin: 0;">Waiting for SAM segmentation...</p>
-                    </div>
-                    <button id="btn-submit-holds" class="btn-primary"
-                      style="width: 100%; padding: 14px; display: none; margin-bottom: 15px;">
-                      ✓ Submit Labels
-                    </button>
+                </div>
+                <!-- Right: Segment Cards -->
+                <div class="label-holds-right">
+                  <div id="segments-list" class="label-holds-segments">
+                    <!-- Segments with dropdowns will be inserted here -->
+                    <p style="color: #888; text-align: center; margin: 0;">Waiting for SAM segmentation...</p>
                   </div>
                 </div>
               </div>
             </div>
-            <div id="status-step-2" class="step-status" style="display: none;"></div>
           </div>
 
           <!-- Step 3: Key Frame Selection -->
