@@ -42,7 +42,7 @@ function showHoldLabelingUI(uploadId, videoName, frameCount) {
   // Get hold color and difficulty from selectors
   const holdColorSelect = document.getElementById('hold-color');
   const routeDifficultySelect = document.getElementById('route-difficulty');
-  
+
   if (holdColorSelect) {
     WorkflowState.setHoldColor(holdColorSelect.value);
   }
@@ -284,7 +284,7 @@ function updateSamProgress(data) {
 function handleCanvasClick(event) {
   const canvas = WorkflowState.holdLabelingCanvas;
   const segments = WorkflowState.holdLabelingSegments;
-  
+
   if (!canvas || !segments.length) return;
 
   const rect = canvas.getBoundingClientRect();
@@ -353,7 +353,7 @@ function renderSegmentsWithDropdowns() {
   const canvas = WorkflowState.holdLabelingCanvas;
   const ctx = WorkflowState.holdLabelingCtx;
   const segments = WorkflowState.holdLabelingSegments;
-  
+
   if (!image || !ctx || !canvas) return;
 
   // Clear canvas and redraw image
@@ -380,7 +380,7 @@ function renderSegmentsWithDropdowns() {
   // Render segments list with dropdowns
   const segmentsList = document.getElementById('segments-list');
   if (!segmentsList) return;
-  
+
   if (segments.length === 0) {
     segmentsList.innerHTML = '<p style="color: #888; text-align: center; margin: 0;">No segments found.</p>';
     return;

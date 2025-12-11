@@ -29,7 +29,7 @@ async function loadFramesForSelection(uploadId, videoName) {
     // Update UI
     const frameTotal = document.getElementById('frame-total');
     const frameSlider = document.getElementById('frame-slider');
-    
+
     if (frameTotal) {
       frameTotal.textContent = data.frames.length;
     }
@@ -62,7 +62,7 @@ function updateFramePreview() {
   // Update current frame in both layouts
   const framePreview = document.getElementById('frame-preview');
   const currentHorizontalImg = document.getElementById('frame-preview-current-horizontal');
-  
+
   if (framePreview) {
     framePreview.src = frame.path;
   }
@@ -72,7 +72,7 @@ function updateFramePreview() {
 
   const frameCurrent = document.getElementById('frame-current');
   const frameSlider = document.getElementById('frame-slider');
-  
+
   if (frameCurrent) {
     frameCurrent.textContent = frameState.currentIndex + 1;
   }
@@ -229,7 +229,7 @@ function handleKeyboardShortcuts(event) {
  */
 function navigateFrame(direction) {
   const frameState = WorkflowState.getFrameSelectionState();
-  
+
   if (frameState.viewMode === 'selected') {
     // In selected mode, navigate only through selected frames
     const selectedFrames = getSelectedFramesArray();
@@ -318,7 +318,7 @@ async function deselectCurrentFrame() {
  */
 async function saveToTrainingPool() {
   const frameState = WorkflowState.getFrameSelectionState();
-  
+
   if (frameState.selectedFrames.size === 0) {
     alert('Please select at least one frame before saving');
     return;
@@ -365,7 +365,7 @@ async function saveToTrainingPool() {
  */
 async function trainFrameSelector() {
   const frameState = WorkflowState.getFrameSelectionState();
-  
+
   if (frameState.selectedFrames.size === 0) {
     alert('Please select at least one frame before training');
     return;
@@ -463,10 +463,10 @@ function getSelectedFramesArray() {
 function updateSelectedFramesCounter() {
   const frameState = WorkflowState.getFrameSelectionState();
   const count = frameState.selectedFrames.size;
-  
+
   const frameSelectedCount = document.getElementById('frame-selected-count');
   const selectedFramesCounter = document.getElementById('selected-frames-counter');
-  
+
   if (frameSelectedCount) {
     frameSelectedCount.textContent = count;
   }
