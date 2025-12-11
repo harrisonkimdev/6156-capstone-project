@@ -17,6 +17,7 @@ const WorkflowState = {
   holdColor: '',
   routeDifficulty: '',
   firstFrameImageUrl: null,
+  videoPreviewUrl: null, // URL for video preview element
   frameAspectRatio: null, // 'vertical' or 'horizontal'
 
   // 3D viewer (currently disabled)
@@ -113,6 +114,10 @@ const WorkflowState = {
     this.firstFrameImageUrl = value;
   },
 
+  setVideoPreviewUrl(value) {
+    this.videoPreviewUrl = value;
+  },
+
   setFrameAspectRatio(value) {
     this.frameAspectRatio = value;
   },
@@ -154,6 +159,7 @@ const WorkflowState = {
     this.holdColor = '';
     this.routeDifficulty = '';
     this.firstFrameImageUrl = null;
+    this.videoPreviewUrl = null;
     this.frameAspectRatio = null;
     this.frameSelectionSavedToPool = false;
     this.resetFrameSelection();

@@ -46,14 +46,33 @@ function handleVideoFileSelection(event) {
     if (previewFilename) {
       previewFilename.textContent = file.name;
     }
+
+    // Clear video preview
+    const videoPreview = document.getElementById('video-preview');
+    if (videoPreview) {
+      videoPreview.src = '';
+    }
+
+    // Clear first frame preview (hidden image for hold detection)
     const firstFramePreview = document.getElementById('first-frame-preview');
     if (firstFramePreview) {
       firstFramePreview.src = '';
     }
   }
 
+  // Create blob URL for video file and set it to video preview element
+  const fileUrl = URL.createObjectURL(file);
+  const videoPreview = document.getElementById('video-preview');
+  if (videoPreview) {
+    videoPreview.src = fileUrl;
+    videoPreview.load();
+  }
+
+  // Store video URL for cleanup
+  WorkflowState.setVideoPreviewUrl(fileUrl);
+
   try {
-    // Extract first frame using video element and canvas
+    // Extract first frame using video element and canvas (for hold detection)
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -83,9 +102,10 @@ function handleVideoFileSelection(event) {
           const previewUrl = URL.createObjectURL(blob);
           WorkflowState.setFirstFrameImageUrl(previewUrl); // Store for hold detection
 
-          const previewImg = document.getElementById('first-frame-preview');
-          if (previewImg) {
-            previewImg.src = previewUrl;
+          // Set to hidden image element (for hold detection UI)
+          const firstFramePreview = document.getElementById('first-frame-preview');
+          if (firstFramePreview) {
+            firstFramePreview.src = previewUrl;
           }
 
           // Also display in hold detection UI
@@ -105,13 +125,12 @@ function handleVideoFileSelection(event) {
       video.pause();
     };
 
-    // Load video file
-    const fileUrl = URL.createObjectURL(file);
+    // Load video file for first frame extraction
     video.src = fileUrl;
 
     // Add error handling
     video.onerror = () => {
-      console.error('Failed to load video file');
+      console.error('Failed to load video file for first frame extraction');
     };
 
     video.load();
@@ -172,7 +191,14 @@ function clearVideoSelection() {
     btnExtractFrames.disabled = true;
   }
 
-  // Clear preview image
+  // Clear video preview
+  const videoPreview = document.getElementById('video-preview');
+  if (videoPreview) {
+    videoPreview.src = '';
+    videoPreview.load(); // Reset video element
+  }
+
+  // Clear preview image (hidden, for hold detection)
   const firstFramePreview = document.getElementById('first-frame-preview');
   if (firstFramePreview) {
     firstFramePreview.src = '';
@@ -185,6 +211,10 @@ function clearVideoSelection() {
   }
 
   // Clear blob URLs to prevent memory leaks
+  if (WorkflowState.videoPreviewUrl) {
+    URL.revokeObjectURL(WorkflowState.videoPreviewUrl);
+    WorkflowState.setVideoPreviewUrl(null);
+  }
   if (WorkflowState.firstFrameImageUrl) {
     URL.revokeObjectURL(WorkflowState.firstFrameImageUrl);
     WorkflowState.setFirstFrameImageUrl(null);
@@ -194,4 +224,5 @@ function clearVideoSelection() {
   WorkflowState.setCurrentUploadId(null);
   WorkflowState.setCurrentVideoName(null);
   WorkflowState.setFirstFrameImageUrl(null);
+  WorkflowState.setVideoPreviewUrl(null);
 }
