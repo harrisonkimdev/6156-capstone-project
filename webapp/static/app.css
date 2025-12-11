@@ -456,6 +456,20 @@ tr:hover td {
   gap: 16px;
 }
 
+.upload-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.upload-header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .label-holds-header-right {
   display: flex;
   align-items: center;
