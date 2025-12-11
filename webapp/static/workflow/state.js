@@ -30,6 +30,7 @@ const WorkflowState = {
     frames: [],
     currentIndex: 0,
     selectedFrames: new Set(),
+    selectedFramesOrder: [], // Track selection order (frame indices)
     viewMode: 'all', // 'all' or 'selected'
     autoSelectedFirstFrame: false, // Track if first frame was auto-selected
   },
@@ -42,6 +43,9 @@ const WorkflowState = {
   selectedSegmentId: null,
   selectedSegmentIds: new Set(),
   holdLabelsSubmitted: false,
+
+  // Training pool state
+  frameSelectionSavedToPool: false,
 
   // Getters
   getCurrentFrameDir() {
@@ -125,6 +129,7 @@ const WorkflowState = {
       frames: [],
       currentIndex: 0,
       selectedFrames: new Set(),
+      selectedFramesOrder: [],
       viewMode: 'all',
       autoSelectedFirstFrame: false,
     };
@@ -150,6 +155,7 @@ const WorkflowState = {
     this.routeDifficulty = '';
     this.firstFrameImageUrl = null;
     this.frameAspectRatio = null;
+    this.frameSelectionSavedToPool = false;
     this.resetFrameSelection();
     this.resetHoldLabeling();
   },

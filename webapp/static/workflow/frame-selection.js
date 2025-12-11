@@ -25,6 +25,11 @@ async function loadFramesForSelection(uploadId, videoName) {
     frameState.selectedFrames = new Set(
       data.frames.filter(f => f.selected).map(f => f.filename)
     );
+    // Initialize selection order from existing selections
+    frameState.selectedFramesOrder = data.frames
+      .map((f, idx) => ({ frame: f, index: idx }))
+      .filter(({ frame }) => frameState.selectedFrames.has(frame.filename))
+      .map(({ index }) => index);
 
     // Update UI
     const frameTotal = document.getElementById('frame-total');
@@ -49,6 +54,10 @@ async function loadFramesForSelection(uploadId, videoName) {
         if (selectResponse.ok) {
           frameState.selectedFrames.add(firstFrame.filename);
           frameState.autoSelectedFirstFrame = true; // Mark as auto-selected
+          // Add to selection order
+          if (!frameState.selectedFramesOrder.includes(0)) {
+            frameState.selectedFramesOrder.push(0);
+          }
           updateSelectedFramesCounter();
         }
       } catch (error) {
@@ -77,7 +86,7 @@ async function loadFramesForSelection(uploadId, videoName) {
 
   } catch (error) {
     console.error('Failed to load frames:', error);
-    showStatus('step-1', `Error loading frames: ${error.message}`, 'error');
+    showStatus('step-3', `Error loading frames: ${error.message}`, 'error');
   }
 }
 
@@ -178,23 +187,46 @@ function updateLayoutForAspectRatio() {
 
 /**
  * Update previously selected frames display
+ * Shows the most recently selected frame before the current frame (if current is selected)
+ * or the most recently selected frame overall
  */
 function updatePreviouslySelectedFrames() {
   const frameState = WorkflowState.getFrameSelectionState();
-  // Get the first selected frame
-  const selectedFrames = frameState.frames.filter(f =>
-    frameState.selectedFrames.has(f.filename)
+  const currentFrame = frameState.frames[frameState.currentIndex];
+  if (!currentFrame) return;
+
+  // Get selection order (indices of selected frames in chronological order)
+  const selectedIndices = frameState.selectedFramesOrder.filter(idx =>
+    idx < frameState.frames.length &&
+    frameState.selectedFrames.has(frameState.frames[idx].filename)
   );
 
-  const firstSelectedFrame = selectedFrames.length > 0 ? selectedFrames[0] : null;
+  let previousSelectedFrame = null;
+
+  if (selectedIndices.length > 0) {
+    // If current frame is selected, find the most recent selection before current index
+    if (frameState.selectedFrames.has(currentFrame.filename)) {
+      // Find the most recent selected frame before current index
+      const previousIndices = selectedIndices.filter(idx => idx < frameState.currentIndex);
+      if (previousIndices.length > 0) {
+        // Get the most recent one (last in selection order that's before current)
+        const previousIndex = previousIndices[previousIndices.length - 1];
+        previousSelectedFrame = frameState.frames[previousIndex];
+      }
+    } else {
+      // If current frame is not selected, show the most recently selected frame
+      const lastSelectedIndex = selectedIndices[selectedIndices.length - 1];
+      previousSelectedFrame = frameState.frames[lastSelectedIndex];
+    }
+  }
 
   // Update both layouts regardless of aspect ratio
   const prevImgVertical = document.getElementById('frame-preview-prev-vertical');
   const prevImgHorizontal = document.getElementById('frame-preview-prev-horizontal');
 
-  if (firstSelectedFrame) {
-    if (prevImgVertical) prevImgVertical.src = firstSelectedFrame.path;
-    if (prevImgHorizontal) prevImgHorizontal.src = firstSelectedFrame.path;
+  if (previousSelectedFrame) {
+    if (prevImgVertical) prevImgVertical.src = previousSelectedFrame.path;
+    if (prevImgHorizontal) prevImgHorizontal.src = previousSelectedFrame.path;
   } else {
     if (prevImgVertical) prevImgVertical.src = '';
     if (prevImgHorizontal) prevImgHorizontal.src = '';
@@ -323,6 +355,12 @@ async function selectCurrentFrame() {
     }
 
     frameState.selectedFrames.add(frame.filename);
+
+    // Add to selection order (append if not already there)
+    if (!frameState.selectedFramesOrder.includes(frameState.currentIndex)) {
+      frameState.selectedFramesOrder.push(frameState.currentIndex);
+    }
+
     // Clear auto-selected flag if user manually selects a different frame
     if (frameState.currentIndex !== 0 || frame.filename !== frameState.frames[0]?.filename) {
       frameState.autoSelectedFirstFrame = false;
@@ -356,6 +394,13 @@ async function deselectCurrentFrame() {
     }
 
     frameState.selectedFrames.delete(frame.filename);
+
+    // Remove from selection order
+    const indexToRemove = frameState.selectedFramesOrder.indexOf(frameState.currentIndex);
+    if (indexToRemove !== -1) {
+      frameState.selectedFramesOrder.splice(indexToRemove, 1);
+    }
+
     // Clear auto-selected flag if user deselects the first frame
     if (frameState.currentIndex === 0 && frame.filename === frameState.frames[0]?.filename) {
       frameState.autoSelectedFirstFrame = false;
@@ -388,7 +433,7 @@ async function saveToTrainingPool() {
   }
 
   try {
-    showStatus('step-1', 'Saving to training pool...', 'info');
+    showStatus('step-3', 'Saving to training pool...', 'info');
 
     const response = await fetch('/api/workflow/save-to-training-pool', {
       method: 'POST',
@@ -405,9 +450,26 @@ async function saveToTrainingPool() {
 
     const data = await response.json();
 
-    showStatus('step-1', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
+    showStatus('step-3', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
+
+    // Mark step-3 as completed
+    setStepCompleted('step-3');
+    WorkflowState.frameSelectionSavedToPool = true;
+    if (typeof updateDashboardStatus === 'function') {
+      updateDashboardStatus();
+    }
+
+    // Show feedback with action buttons
     if (window.showFeedback) {
-      window.showFeedback(`Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
+      window.showFeedback(
+        `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`,
+        'success',
+        0, // Don't auto-dismiss when actions present
+        [
+          { label: 'Upload Another Video', callback: resetWorkflowAndUploadAnother, style: 'secondary' },
+          { label: 'Train Models', callback: () => navigateToStep('step-4'), style: 'primary' }
+        ]
+      );
     }
 
     // Update pool info display
@@ -417,7 +479,10 @@ async function saveToTrainingPool() {
 
   } catch (error) {
     console.error('Failed to save to pool:', error);
-    showStatus('step-1', `Save failed: ${error.message}`, 'error');
+    showStatus('step-3', `Save failed: ${error.message}`, 'error');
+    if (window.showFeedback) {
+      window.showFeedback(`Save failed: ${error.message}`, 'error');
+    }
   }
 }
 
@@ -441,7 +506,7 @@ async function trainFrameSelector() {
   }
 
   try {
-    showStatus('step-1', 'Training frame selector model...', 'info');
+    showStatus('step-3', 'Training frame selector model...', 'info');
 
     const response = await fetch('/api/workflow/train-frame-selector', {
       method: 'POST',
@@ -460,12 +525,12 @@ async function trainFrameSelector() {
 
     if (data.note) {
       // Training pipeline not yet implemented
-      showStatus('step-1', `${data.message} (${data.note})`, 'info');
+      showStatus('step-3', `${data.message} (${data.note})`, 'info');
       if (window.showFeedback) {
         window.showFeedback(`${data.message}. Note: ${data.note}`, 'info');
       }
     } else {
-      showStatus('step-1', `Training complete!`, 'success');
+      showStatus('step-3', `Training complete!`, 'success');
       const f1Score = (data.results?.metrics?.f1 * 100 || 0).toFixed(1);
       if (window.showFeedback) {
         window.showFeedback(`Training complete! Test F1 Score: ${f1Score}%`, 'success');
@@ -474,7 +539,7 @@ async function trainFrameSelector() {
 
   } catch (error) {
     console.error('Training failed:', error);
-    showStatus('step-1', `Training failed: ${error.message}`, 'error');
+    showStatus('step-3', `Training failed: ${error.message}`, 'error');
   }
 }
 
@@ -650,5 +715,77 @@ function updateFrameCounterDisplay() {
   } else {
     currentElem.textContent = frameState.currentIndex + 1;
     totalElem.textContent = frameState.frames.length;
+  }
+}
+
+/**
+ * Reset workflow and go back to upload another video
+ */
+function resetWorkflowAndUploadAnother() {
+  // Reset workflow state
+  WorkflowState.reset();
+
+  // Hide all steps except step-1
+  const step2 = document.getElementById('step-2');
+  const step3 = document.getElementById('step-3');
+  const step4 = document.getElementById('step-4');
+  const frameSelectionUI = document.getElementById('frame-selection-ui');
+  const holdLabelingUI = document.getElementById('hold-labeling-ui');
+
+  if (step2) step2.style.display = 'none';
+  if (step3) step3.style.display = 'none';
+  if (step4) step4.style.display = 'none';
+  if (frameSelectionUI) frameSelectionUI.style.display = 'none';
+  if (holdLabelingUI) holdLabelingUI.style.display = 'none';
+
+  // Hide the save button in step-3
+  const btnSaveToPool = document.getElementById('btn-save-to-pool');
+  if (btnSaveToPool) {
+    btnSaveToPool.style.display = 'none';
+  }
+
+  // Clear video file input
+  const videoFileInput = document.getElementById('video-file');
+  if (videoFileInput) {
+    videoFileInput.value = '';
+  }
+
+  // Show drag-drop zone
+  const dragDropZone = document.getElementById('drag-drop-zone');
+  if (dragDropZone) {
+    dragDropZone.style.display = 'block';
+  }
+
+  // Hide video preview
+  const previewContainer = document.getElementById('video-preview-container');
+  if (previewContainer) {
+    previewContainer.style.display = 'none';
+  }
+
+  // Disable extract button
+  const btnExtractFrames = document.getElementById('btn-extract-frames');
+  if (btnExtractFrames) {
+    btnExtractFrames.disabled = true;
+  }
+
+  // Show step-1
+  const step1 = document.getElementById('step-1');
+  if (step1) {
+    step1.style.display = 'block';
+  }
+
+  // Navigate to step-1
+  if (typeof navigateToStep === 'function') {
+    navigateToStep('step-1');
+  }
+
+  // Update dashboard status
+  if (typeof updateDashboardStatus === 'function') {
+    updateDashboardStatus();
+  }
+
+  // Highlight training pool section to show where data was added
+  if (typeof highlightPoolSection === 'function') {
+    highlightPoolSection('frames');
   }
 }

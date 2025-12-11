@@ -1753,6 +1753,67 @@ input[type="file"] {
   color: #58a6ff;
 }
 
+/* Feedback with action buttons */
+.feedback-item.has-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.feedback-item.has-actions .feedback-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.feedback-item.has-actions .feedback-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.feedback-item.has-actions {
+  position: relative;
+  padding-right: 36px;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.feedback-action-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.feedback-action-btn.primary {
+  background: #0066cc;
+  color: white;
+}
+
+.feedback-action-btn.primary:hover {
+  background: #0077ee;
+}
+
+.feedback-action-btn.secondary {
+  background: #333;
+  color: #aaa;
+  border: 1px solid #444;
+}
+
+.feedback-action-btn.secondary:hover {
+  background: #444;
+  color: #fff;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .feedback-widget-container {
@@ -1766,4 +1827,53 @@ input[type="file"] {
     min-width: auto;
     max-width: none;
   }
+}
+
+/* Training Pool Highlight Effect */
+.pool-highlight {
+  animation: poolPulse 3s ease-out;
+}
+
+@keyframes poolPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 204, 0.7);
+  }
+
+  25% {
+    box-shadow: 0 0 20px 5px rgba(0, 102, 204, 0.6);
+  }
+
+  50% {
+    box-shadow: 0 0 40px 10px rgba(0, 102, 204, 0.4);
+  }
+
+  75% {
+    box-shadow: 0 0 20px 5px rgba(0, 102, 204, 0.2);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 204, 0);
+  }
+}
+
+/* Pool count badges in header */
+.pool-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #333;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.pool-count-badge .count {
+  background: #0066cc;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-weight: 600;
+  min-width: 20px;
+  text-align: center;
 }

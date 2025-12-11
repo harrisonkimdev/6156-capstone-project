@@ -19,13 +19,16 @@ async function loadTrainingPoolInfo() {
 
     const poolVideoCount = document.getElementById('pool-video-count');
     const poolFrameCount = document.getElementById('pool-frame-count');
-    
+
     if (poolVideoCount) {
       poolVideoCount.textContent = data.video_count || 0;
     }
     if (poolFrameCount) {
       poolFrameCount.textContent = data.frame_count || 0;
     }
+
+    // Also update header counts
+    updatePoolHeaderCounts();
 
   } catch (error) {
     console.error('Failed to load pool info:', error);
@@ -128,7 +131,7 @@ async function loadKeyFrameSelectionPool() {
     const data = await response.json();
     const poolVideoCount = document.getElementById('pool-video-count');
     const poolFrameCount = document.getElementById('pool-frame-count');
-    
+
     if (poolVideoCount) {
       poolVideoCount.textContent = data.video_count || 0;
     }
@@ -186,7 +189,7 @@ async function trainYoloFromPool() {
 
     const data = await response.json();
     showStatus('step-2', `Training started (Job ID: ${data.job_id})`, 'success');
-    
+
     if (typeof loadTrainingJobs === 'function') {
       loadTrainingJobs();
     }
@@ -215,5 +218,57 @@ async function trainFrameSelectorFromPool() {
   } catch (error) {
     console.error('Failed to start training:', error);
     showStatus('step-3', `Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Highlight training pool section to show where data was added
+ * @param {string} poolType - Pool type ('holds' or 'frames')
+ */
+function highlightPoolSection(poolType) {
+  const trainingPoolSection = document.getElementById('training-pool-section');
+  if (!trainingPoolSection) return;
+
+  // First switch to the relevant pool tab
+  toggleTrainingPool(poolType);
+
+  // Add highlight class
+  trainingPoolSection.classList.add('pool-highlight');
+
+  // Remove highlight after animation completes
+  setTimeout(() => {
+    trainingPoolSection.classList.remove('pool-highlight');
+  }, 3000);
+
+  // Scroll to the training pool section
+  trainingPoolSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/**
+ * Update pool counts in the header
+ */
+async function updatePoolHeaderCounts() {
+  try {
+    // Get hold detection pool count
+    const holdsResponse = await fetch('/api/workflow/pool/hold-detection');
+    if (holdsResponse.ok) {
+      const holdsData = await holdsResponse.json();
+      const holdCountBadge = document.getElementById('pool-header-holds-count');
+      if (holdCountBadge) {
+        holdCountBadge.textContent = holdsData.total_sets || 0;
+      }
+    }
+
+    // Get key frame selection pool count
+    const framesResponse = await fetch('/api/workflow/pool/key-frame-selection');
+    if (framesResponse.ok) {
+      const framesData = await framesResponse.json();
+      const frameCountBadge = document.getElementById('pool-header-frames-count');
+      if (frameCountBadge) {
+        frameCountBadge.textContent = framesData.frame_count || 0;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to update pool header counts:', error);
   }
 }

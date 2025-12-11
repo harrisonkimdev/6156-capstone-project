@@ -1,21 +1,21 @@
 /**
  * Feedback Widget
  * 
- * 통일된 피드백 표시 위젯 - 오른쪽 하단에 고정되어 표시됩니다.
- * success, error, warning, info 타입을 지원합니다.
+ * Unified feedback display widget - fixed at bottom right of the screen.
+ * Supports success, error, warning, and info message types.
  */
 
 (function () {
   'use strict';
 
-  // 위젯 컨테이너 생성
+  // Widget container
   let container = null;
   const messageQueue = [];
   const maxVisibleMessages = 5;
-  const defaultDuration = 5000; // 5초
+  const defaultDuration = 5000; // 5 seconds
 
   /**
-   * 위젯 초기화
+   * Initialize widget
    */
   function initWidget() {
     if (container) return;
@@ -27,7 +27,7 @@
   }
 
   /**
-   * 타입별 아이콘 반환
+   * Get icon for message type
    */
   function getIcon(type) {
     const icons = {
@@ -40,49 +40,88 @@
   }
 
   /**
-   * 피드백 메시지 표시
-   * @param {string} message - 표시할 메시지
-   * @param {string} type - 메시지 타입 ('success', 'error', 'warning', 'info')
-   * @param {number} duration - 자동으로 사라지는 시간 (ms, 기본 5000)
+   * Show feedback message
+   * @param {string} message - Message to display
+   * @param {string} type - Message type ('success', 'error', 'warning', 'info')
+   * @param {number} duration - Auto-dismiss duration in ms (default 5000, 0 means no auto-dismiss)
+   * @param {Array} actions - Action button array [{label: string, callback: function, style?: 'primary'|'secondary'}]
    */
-  function showFeedback(message, type = 'info', duration = defaultDuration) {
+  function showFeedback(message, type = 'info', duration = defaultDuration, actions = null) {
     if (!message) return;
 
-    // 위젯 초기화
+    // Initialize widget
     initWidget();
 
-    // 타입 검증
+    // Validate type
     const validTypes = ['success', 'error', 'warning', 'info'];
     if (!validTypes.includes(type)) {
       type = 'info';
     }
 
-    // 메시지 아이템 생성
+    // Set duration to 0 if actions present (keep until user clicks)
+    if (actions && actions.length > 0 && duration === defaultDuration) {
+      duration = 0;
+    }
+
+    // Create message item
     const item = document.createElement('div');
     item.className = `feedback-item ${type}`;
+    if (actions && actions.length > 0) {
+      item.classList.add('has-actions');
+    }
 
     const icon = getIcon(type);
+    let actionsHtml = '';
+    if (actions && actions.length > 0) {
+      actionsHtml = `
+        <div class="feedback-actions">
+          ${actions.map((action, idx) => `
+            <button class="feedback-action-btn ${action.style || (idx === 0 ? 'primary' : 'secondary')}" data-action-idx="${idx}">
+              ${escapeHtml(action.label)}
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+
     item.innerHTML = `
-      <span class="feedback-icon">${icon}</span>
-      <span class="feedback-message">${escapeHtml(message)}</span>
+      <div class="feedback-content">
+        <span class="feedback-icon">${icon}</span>
+        <span class="feedback-message">${escapeHtml(message)}</span>
+      </div>
+      ${actionsHtml}
       <button class="feedback-close" aria-label="Close">×</button>
     `;
 
-    // 닫기 버튼 이벤트
+    // Close button event
     const closeBtn = item.querySelector('.feedback-close');
     closeBtn.addEventListener('click', () => {
       removeMessage(item);
     });
 
-    // 컨테이너에 추가
+    // Action button events
+    if (actions && actions.length > 0) {
+      const actionBtns = item.querySelectorAll('.feedback-action-btn');
+      actionBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.actionIdx);
+          if (actions[idx] && typeof actions[idx].callback === 'function') {
+            actions[idx].callback();
+          }
+          removeMessage(item);
+        });
+      });
+    }
+
+    // Add to container
     container.appendChild(item);
 
-    // 애니메이션을 위한 약간의 지연
+    // Small delay for animation
     requestAnimationFrame(() => {
       item.classList.add('show');
     });
 
-    // 자동 제거
+    // Auto-remove
     if (duration > 0) {
       const timeoutId = setTimeout(() => {
         removeMessage(item);
@@ -90,7 +129,7 @@
       item.dataset.timeoutId = timeoutId;
     }
 
-    // 큐 관리 - 최대 개수 초과 시 가장 오래된 메시지 제거
+    // Queue management - remove oldest message if max exceeded
     messageQueue.push(item);
     if (messageQueue.length > maxVisibleMessages) {
       const oldestItem = messageQueue.shift();
@@ -98,20 +137,22 @@
         removeMessage(oldestItem);
       }
     }
+
+    return item;
   }
 
   /**
-   * 메시지 제거
+   * Remove message
    */
   function removeMessage(item) {
     if (!item || !item.parentNode) return;
 
-    // 타임아웃 클리어
+    // Clear timeout
     if (item.dataset.timeoutId) {
       clearTimeout(parseInt(item.dataset.timeoutId));
     }
 
-    // 애니메이션 후 제거
+    // Remove after animation
     item.classList.remove('show');
     item.classList.add('hide');
 
@@ -119,16 +160,16 @@
       if (item.parentNode) {
         item.parentNode.removeChild(item);
       }
-      // 큐에서도 제거
+      // Remove from queue
       const index = messageQueue.indexOf(item);
       if (index > -1) {
         messageQueue.splice(index, 1);
       }
-    }, 300); // CSS transition 시간과 일치
+    }, 300); // Match CSS transition duration
   }
 
   /**
-   * HTML 이스케이프
+   * Escape HTML
    */
   function escapeHtml(text) {
     const div = document.createElement('div');
@@ -137,7 +178,7 @@
   }
 
   /**
-   * 모든 메시지 제거
+   * Clear all messages
    */
   function clearAll() {
     if (!container) return;
@@ -146,11 +187,11 @@
     items.forEach(item => removeMessage(item));
   }
 
-  // 전역 함수로 export
+  // Export as global functions
   window.showFeedback = showFeedback;
   window.clearFeedback = clearAll;
 
-  // DOMContentLoaded 시 초기화
+  // Initialize on DOMContentLoaded
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initWidget);
   } else {

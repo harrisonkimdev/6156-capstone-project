@@ -56,9 +56,21 @@
     </section>
 
     <!-- Training Pool & Jobs Section (with toggle) -->
-    <section class="card">
+    <section class="card" id="training-pool-section">
       <div class="card-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
-        <h2 style="color: #fff; margin: 0; font-size: 18px;">Training Pool & Jobs</h2>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <h2 style="color: #fff; margin: 0; font-size: 18px;">Training Pool & Jobs</h2>
+          <div style="display: flex; gap: 10px;">
+            <span class="pool-count-badge">
+              <span>Holds:</span>
+              <span class="count" id="pool-header-holds-count">0</span>
+            </span>
+            <span class="pool-count-badge">
+              <span>Frames:</span>
+              <span class="count" id="pool-header-frames-count">0</span>
+            </span>
+          </div>
+        </div>
         <label class="toggle-switch"
           style="display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;">
           <span id="toggle-label"
@@ -183,7 +195,7 @@
                 <div class="step-icon">✓</div>
               </div>
               <div class="step-card-info">
-                <div class="step-label">Upload to GCS</div>
+                <div class="step-label">Train Models</div>
                 <div class="step-status" id="step-4-status-badge">Not started</div>
               </div>
             </div>
@@ -437,17 +449,23 @@
             <div id="status-step-3" class="step-status" style="display: none;"></div>
           </div>
 
-          <!-- Step 4: Upload to GCS -->
+          <!-- Step 4: Train Models -->
           <div id="step-4" class="step-card" style="display: none;">
             <div class="step-header">
               <div class="step-number">4</div>
-              <div class="step-title">Upload to GCS</div>
+              <div class="step-title">Train Models</div>
             </div>
-            <div class="step-content">
-              Upload the trained YOLO model to Google Cloud Storage for deployment.
+            <div class="step-content" style="color: #aaa; margin-bottom: 15px;">
+              Train AI models using data from the training pool. Training data is automatically uploaded to cloud
+              storage.
             </div>
-            <div class="step-actions">
-              <button id="btn-upload-gcs" class="btn-primary" disabled>Upload Model</button>
+            <div class="step-actions" style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button id="btn-train-hold-detector" class="btn-primary" onclick="trainYoloFromPool()">
+                🎯 Train Hold Detector (YOLO)
+              </button>
+              <button id="btn-train-frame-selector" class="btn-secondary" onclick="trainFrameSelectorFromPool()">
+                🎬 Train Frame Selector
+              </button>
             </div>
             <div id="status-step-4" class="step-status" style="display: none;"></div>
           </div>

@@ -580,6 +580,47 @@ async def deselect_frame(upload_id: str, video_name: str, frame_name: str) -> di
     }
 
 
+async def _upload_pool_to_storage_background(pool_video_dir: Path, upload_id: str) -> None:
+    """Background task to upload training pool data to GCS/Google Drive.
+    
+    Args:
+        pool_video_dir: Path to the pool video directory.
+        upload_id: Unique identifier for the upload.
+    """
+    try:
+        from pose_ai.cloud.storage import get_storage_manager
+        storage = get_storage_manager()
+        
+        # Upload selected frames
+        selected_frames_dir = pool_video_dir / "human_selected_frames"
+        if selected_frames_dir.exists():
+            result = storage.upload_training_data(
+                selected_frames_dir,
+                job_id=upload_id,
+                data_type="key_frame_selection"
+            )
+            if result.gcs_uri:
+                LOGGER.info(f"Uploaded key frame selection data to GCS: {result.gcs_uri}")
+            if result.drive_id:
+                LOGGER.info(f"Uploaded key frame selection data to Drive: {result.drive_id}")
+        
+        # Also upload all_frames for complete training data
+        all_frames_dir = pool_video_dir / "all_frames"
+        if all_frames_dir.exists():
+            result = storage.upload_training_data(
+                all_frames_dir,
+                job_id=upload_id,
+                data_type="all_frames"
+            )
+            if result.gcs_uri:
+                LOGGER.info(f"Uploaded all frames data to GCS: {result.gcs_uri}")
+            if result.drive_id:
+                LOGGER.info(f"Uploaded all frames data to Drive: {result.drive_id}")
+                
+    except Exception as e:
+        LOGGER.error(f"Background upload to storage failed for {upload_id}: {e}")
+
+
 @app.post("/api/workflow/save-to-training-pool", response_class=JSONResponse)
 async def save_to_training_pool(request: Request) -> dict[str, object]:
     """Save selected frames from current video to training pool."""
@@ -615,6 +656,10 @@ async def save_to_training_pool(request: Request) -> dict[str, object]:
         shutil.copytree(workflow_dir, pool_video_dir, dirs_exist_ok=True)
         
         LOGGER.info(f"Saved video '{video_name}' to training pool: {pool_video_dir}")
+        
+        # Start background upload to GCS/Google Drive (non-blocking)
+        import asyncio
+        asyncio.create_task(_upload_pool_to_storage_background(pool_video_dir, upload_id))
         
         # Count total videos and frames in pool
         pool_videos = [d for d in training_pool_dir.iterdir() if d.is_dir()]

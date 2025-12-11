@@ -59,11 +59,11 @@ function navigateToStep(stepId) {
 function getStepStatus(stepId) {
   switch (stepId) {
     case 'step-1':
-      // 비디오가 업로드되어 있으면 completed
+      // Completed if video is uploaded
       if (WorkflowState.getCurrentUploadId() && WorkflowState.getCurrentVideoName()) {
         return 'completed';
       }
-      // 비디오 파일이 선택되어 있으면 in-progress (업로드/분석 진행 중)
+      // In-progress if video file is selected (upload/analysis in progress)
       const videoFileInput = document.getElementById('video-file');
       if (videoFileInput && videoFileInput.files && videoFileInput.files.length > 0) {
         return 'in-progress';
@@ -95,8 +95,11 @@ function getStepStatus(stepId) {
       // segments가 있지만 아직 labeling이 완료되지 않음
       return 'in-progress';
     case 'step-3':
-      // Step 3 is completed if sessionId exists
-      // In-progress only if video is uploaded and frame selection UI is active
+      // Step 3 is completed if saved to training pool
+      if (WorkflowState.frameSelectionSavedToPool) {
+        return 'completed';
+      }
+      // Also completed if sessionId exists (legacy check)
       if (WorkflowState.getCurrentSessionId()) {
         return 'completed';
       }
@@ -184,7 +187,7 @@ function isStepStarted(stepId) {
     case 'step-2':
       return WorkflowState.getHoldLabelingSegments().length > 0;
     case 'step-3':
-      return WorkflowState.getCurrentSessionId() !== null;
+      return WorkflowState.frameSelectionSavedToPool || WorkflowState.getCurrentSessionId() !== null;
     case 'step-4':
       return WorkflowState.getCurrentTrainingJobId() !== null;
     default:
