@@ -31,6 +31,7 @@ const WorkflowState = {
     currentIndex: 0,
     selectedFrames: new Set(),
     viewMode: 'all', // 'all' or 'selected'
+    autoSelectedFirstFrame: false, // Track if first frame was auto-selected
   },
 
   // Hold labeling state
@@ -40,6 +41,7 @@ const WorkflowState = {
   holdLabelingImage: null,
   selectedSegmentId: null,
   selectedSegmentIds: new Set(),
+  holdLabelsSubmitted: false,
 
   // Getters
   getCurrentFrameDir() {
@@ -124,6 +126,7 @@ const WorkflowState = {
       currentIndex: 0,
       selectedFrames: new Set(),
       viewMode: 'all',
+      autoSelectedFirstFrame: false,
     };
   },
 
@@ -134,6 +137,7 @@ const WorkflowState = {
     this.holdLabelingImage = null;
     this.selectedSegmentId = null;
     this.selectedSegmentIds = new Set();
+    this.holdLabelsSubmitted = false;
   },
 
   reset() {
@@ -148,5 +152,13 @@ const WorkflowState = {
     this.frameAspectRatio = null;
     this.resetFrameSelection();
     this.resetHoldLabeling();
+  },
+
+  getHoldLabelsSubmitted() {
+    return this.holdLabelsSubmitted;
+  },
+
+  setHoldLabelsSubmitted(value) {
+    this.holdLabelsSubmitted = value;
   }
 };

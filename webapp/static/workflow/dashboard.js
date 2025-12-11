@@ -70,6 +70,11 @@ function getStepStatus(stepId) {
       }
       return 'not-started';
     case 'step-2':
+      // If labels were submitted, step-2 is completed
+      if (WorkflowState.getHoldLabelsSubmitted && WorkflowState.getHoldLabelsSubmitted()) {
+        return 'completed';
+      }
+
       const segments = WorkflowState.getHoldLabelingSegments();
       // segments가 없으면 not-started
       if (segments.length === 0) {

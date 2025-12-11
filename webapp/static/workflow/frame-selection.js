@@ -38,12 +38,42 @@ async function loadFramesForSelection(uploadId, videoName) {
       frameSlider.max = data.frames.length - 1;
     }
 
+    // Auto-select first frame if no frames are selected yet
+    if (frameState.selectedFrames.size === 0 && frameState.frames.length > 0) {
+      const firstFrame = frameState.frames[0];
+      try {
+        const selectResponse = await fetch(
+          `/api/workflow/frames/${uploadId}/${videoName}/select?frame_name=${firstFrame.filename}`,
+          { method: 'POST' }
+        );
+        if (selectResponse.ok) {
+          frameState.selectedFrames.add(firstFrame.filename);
+          frameState.autoSelectedFirstFrame = true; // Mark as auto-selected
+          updateSelectedFramesCounter();
+        }
+      } catch (error) {
+        console.error('Failed to auto-select first frame:', error);
+      }
+    }
+
     // Load first frame
     WorkflowState.setFrameAspectRatio(null); // Reset aspect ratio detection
     updateFramePreview();
 
     // Update previously selected frames to show auto-selected first frame
     updatePreviouslySelectedFrames();
+
+    // Show "Save to Training Pool" button if frame selection UI is visible
+    const frameSelectionUI = document.getElementById('frame-selection-ui');
+    const btnSaveToPool = document.getElementById('btn-save-to-pool');
+    if (frameSelectionUI && frameSelectionUI.style.display !== 'none' && btnSaveToPool) {
+      btnSaveToPool.style.display = 'block';
+    }
+
+    // Update dashboard status to show step-3 as in-progress
+    if (typeof updateDashboardStatus === 'function') {
+      updateDashboardStatus();
+    }
 
   } catch (error) {
     console.error('Failed to load frames:', error);
@@ -81,14 +111,23 @@ function updateFramePreview() {
   }
 
   // Update selected badge (both vertical and horizontal layouts)
+  // Don't show badge for auto-selected first frame when viewing it
   const badge = document.getElementById('frame-selected-badge');
   const badgeHorizontal = document.getElementById('frame-selected-badge-horizontal');
   const isSelected = frameState.selectedFrames.has(frame.filename);
+  const isAutoSelectedFirst = frameState.autoSelectedFirstFrame &&
+    frameState.currentIndex === 0 &&
+    frameState.frames.length > 0 &&
+    frame.filename === frameState.frames[0].filename;
+
+  // Hide badge if this is the auto-selected first frame
+  const shouldShowBadge = isSelected && !isAutoSelectedFirst;
+
   if (badge) {
-    badge.style.display = isSelected ? 'block' : 'none';
+    badge.style.display = shouldShowBadge ? 'block' : 'none';
   }
   if (badgeHorizontal) {
-    badgeHorizontal.style.display = isSelected ? 'block' : 'none';
+    badgeHorizontal.style.display = shouldShowBadge ? 'block' : 'none';
   }
 
   // Update previously selected frames display
@@ -242,6 +281,10 @@ function navigateFrame(direction) {
     if (newSelectedIndex >= 0 && newSelectedIndex < selectedFrames.length) {
       const newFrame = selectedFrames[newSelectedIndex];
       frameState.currentIndex = frameState.frames.findIndex(f => f.filename === newFrame.filename);
+      // Clear auto-selected flag when navigating away from first frame
+      if (frameState.currentIndex !== 0) {
+        frameState.autoSelectedFirstFrame = false;
+      }
       updateFramePreview();
       updateSliderForViewMode();
     }
@@ -250,6 +293,10 @@ function navigateFrame(direction) {
     const newIndex = frameState.currentIndex + direction;
     if (newIndex >= 0 && newIndex < frameState.frames.length) {
       frameState.currentIndex = newIndex;
+      // Clear auto-selected flag when navigating away from first frame
+      if (newIndex !== 0) {
+        frameState.autoSelectedFirstFrame = false;
+      }
       updateFramePreview();
     }
   }
@@ -276,6 +323,10 @@ async function selectCurrentFrame() {
     }
 
     frameState.selectedFrames.add(frame.filename);
+    // Clear auto-selected flag if user manually selects a different frame
+    if (frameState.currentIndex !== 0 || frame.filename !== frameState.frames[0]?.filename) {
+      frameState.autoSelectedFirstFrame = false;
+    }
     updateSelectedFramesCounter();
     updateFramePreview();
 
@@ -305,6 +356,10 @@ async function deselectCurrentFrame() {
     }
 
     frameState.selectedFrames.delete(frame.filename);
+    // Clear auto-selected flag if user deselects the first frame
+    if (frameState.currentIndex === 0 && frame.filename === frameState.frames[0]?.filename) {
+      frameState.autoSelectedFirstFrame = false;
+    }
     updateSelectedFramesCounter();
     updateFramePreview();
 
@@ -320,7 +375,11 @@ async function saveToTrainingPool() {
   const frameState = WorkflowState.getFrameSelectionState();
 
   if (frameState.selectedFrames.size === 0) {
-    alert('Please select at least one frame before saving');
+    if (window.showFeedback) {
+      window.showFeedback('Please select at least one frame before saving', 'warning');
+    } else {
+      alert('Please select at least one frame before saving');
+    }
     return;
   }
 
@@ -347,7 +406,9 @@ async function saveToTrainingPool() {
     const data = await response.json();
 
     showStatus('step-1', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
-    alert(`✓ Saved to training pool!\n\nTotal videos: ${data.total_videos}\nTotal frames: ${data.total_frames}`);
+    if (window.showFeedback) {
+      window.showFeedback(`Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
+    }
 
     // Update pool info display
     if (typeof loadTrainingPoolInfo === 'function') {
@@ -367,7 +428,11 @@ async function trainFrameSelector() {
   const frameState = WorkflowState.getFrameSelectionState();
 
   if (frameState.selectedFrames.size === 0) {
-    alert('Please select at least one frame before training');
+    if (window.showFeedback) {
+      window.showFeedback('Please select at least one frame before training', 'warning');
+    } else {
+      alert('Please select at least one frame before training');
+    }
     return;
   }
 
@@ -396,10 +461,15 @@ async function trainFrameSelector() {
     if (data.note) {
       // Training pipeline not yet implemented
       showStatus('step-1', `${data.message} (${data.note})`, 'info');
-      alert(`✓ ${data.message}\n\nNote: ${data.note}`);
+      if (window.showFeedback) {
+        window.showFeedback(`${data.message}. Note: ${data.note}`, 'info');
+      }
     } else {
       showStatus('step-1', `Training complete!`, 'success');
-      alert(`✓ Training complete!\n\nTest F1 Score: ${(data.results?.metrics?.f1 * 100 || 0).toFixed(1)}%`);
+      const f1Score = (data.results?.metrics?.f1 * 100 || 0).toFixed(1);
+      if (window.showFeedback) {
+        window.showFeedback(`Training complete! Test F1 Score: ${f1Score}%`, 'success');
+      }
     }
 
   } catch (error) {
@@ -430,17 +500,25 @@ async function clearAllData() {
     }
 
     const data = await response.json();
-    alert(`✓ Data cleared successfully!\nCleared: ${data.cleared_directories.join(', ')}`);
+    if (window.showFeedback) {
+      window.showFeedback(`Data cleared successfully! Cleared: ${data.cleared_directories.join(', ')}`, 'success');
+    }
 
     // Reset UI state
     WorkflowState.reset();
 
-    // Reload page
-    location.reload();
+    // Reload page after a short delay to show feedback
+    setTimeout(() => {
+      location.reload();
+    }, 1000);
 
   } catch (error) {
     console.error('Failed to clear data:', error);
-    alert(`❌ Error: ${error.message}`);
+    if (window.showFeedback) {
+      window.showFeedback(`Error: ${error.message}`, 'error');
+    } else {
+      alert(`❌ Error: ${error.message}`);
+    }
   }
 }
 
@@ -506,9 +584,13 @@ function setViewMode(mode) {
       btnSelected.style.color = 'white';
     }
 
-    // If no frames selected, show alert and stay in all mode
+    // If no frames selected, show feedback and stay in all mode
     if (frameState.selectedFrames.size === 0) {
-      alert('No frames selected yet. Please select at least one frame.');
+      if (window.showFeedback) {
+        window.showFeedback('No frames selected yet. Please select at least one frame.', 'warning');
+      } else {
+        alert('No frames selected yet. Please select at least one frame.');
+      }
       setViewMode('all');
       return;
     }

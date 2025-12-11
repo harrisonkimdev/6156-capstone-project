@@ -315,9 +315,16 @@
 
           <!-- Step 3: Key Frame Selection -->
           <div id="step-3" class="step-card" style="display: none;">
-            <div class="step-header">
-              <div class="step-number">3</div>
-              <div class="step-title">Key Frame Selection</div>
+            <div class="step-header label-holds-header">
+              <div class="step-header-left">
+                <div class="step-number">3</div>
+                <div class="step-title">Key Frame Selection</div>
+              </div>
+              <div class="label-holds-header-right">
+                <button id="btn-save-to-pool" class="btn-primary" style="padding: 12px 16px; display: none;">
+                  💾 Save to Training Pool
+                </button>
+              </div>
             </div>
             <div class="step-content">
               Select key frames for training the frame selector model.
@@ -332,6 +339,37 @@
                         id="frame-total">0</span></span>
                     <span style="color: #aaa;">Selected: <span id="frame-selected-count"
                         style="color: #0066cc; font-weight: bold;">0</span></span>
+                  </div>
+
+                  <!-- Keyboard instructions -->
+                  <div
+                    style="margin-bottom: 15px; color: #aaa; font-size: 12px; background: #1e1e1e; padding: 10px; border-radius: 4px;">
+                    <strong>Keyboard Shortcuts:</strong><br>
+                    <kbd>←</kbd> Previous frame &nbsp;|&nbsp; <kbd>→</kbd> Next frame &nbsp;|&nbsp; <kbd>S</kbd> Select
+                    frame &nbsp;|&nbsp; <kbd>X</kbd> Deselect frame
+                  </div>
+
+                  <!-- Frame slider -->
+                  <div style="margin-bottom: 15px;">
+                    <input type="range" id="frame-slider" min="0" max="0" value="0" style="width: 100%;">
+                  </div>
+
+                  <!-- View Mode Toggle -->
+                  <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                    <div style="flex: 1; display: flex; gap: 5px;">
+                      <button id="btn-view-all"
+                        style="flex: 1; padding: 8px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
+                        📋 All Frames
+                      </button>
+                      <button id="btn-view-selected"
+                        style="flex: 1; padding: 8px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
+                        ⭐ Selected Only
+                      </button>
+                    </div>
+                    <div id="selected-frames-counter"
+                      style="padding: 8px 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #00cc66; font-weight: bold; white-space: nowrap;">
+                      0 selected
+                    </div>
                   </div>
 
                   <!-- Frame comparison view (layout adjusts based on aspect ratio) -->
@@ -393,44 +431,6 @@
                       </div>
                     </div>
                   </div>
-
-                  <div style="margin-top: 10px;">
-                    <input type="range" id="frame-slider" min="0" max="0" value="0" style="width: 100%;">
-                  </div>
-                  <div
-                    style="margin-top: 15px; color: #aaa; font-size: 12px; background: #1e1e1e; padding: 10px; border-radius: 4px;">
-                    <strong>Keyboard Shortcuts:</strong><br>
-                    <kbd>←</kbd> Previous frame &nbsp;|&nbsp; <kbd>→</kbd> Next frame &nbsp;|&nbsp; <kbd>S</kbd> Select
-                    frame &nbsp;|&nbsp; <kbd>X</kbd> Deselect frame
-                  </div>
-
-                  <!-- View Mode Toggle -->
-                  <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
-                    <div style="flex: 1; display: flex; gap: 5px;">
-                      <button id="btn-view-all"
-                        style="flex: 1; padding: 8px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
-                        📋 All Frames
-                      </button>
-                      <button id="btn-view-selected"
-                        style="flex: 1; padding: 8px; background: #333; color: #aaa; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">
-                        ⭐ Selected Only
-                      </button>
-                    </div>
-                    <div id="selected-frames-counter"
-                      style="padding: 8px 12px; background: #1e1e1e; border-radius: 4px; font-size: 12px; color: #00cc66; font-weight: bold; white-space: nowrap;">
-                      0 selected
-                    </div>
-                  </div>
-                </div>
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                  <button id="btn-save-to-pool" class="btn-primary"
-                    style="flex: 1; padding: 12px; background: #0066cc;">
-                    💾 Save to Training Pool
-                  </button>
-                  <button id="btn-train-frame-selector" class="btn-primary"
-                    style="flex: 1; padding: 12px; background: #00cc66;">
-                    🚀 Train Now (Current Video)
-                  </button>
                 </div>
               </div>
             </div>
@@ -455,6 +455,9 @@
       </div>
     </section>
   </main>
+
+  <!-- Feedback Widget (load first) -->
+  <script src="/static/feedback-widget.js"></script>
 
   <!-- Workflow Modules (load in order) -->
   <script src="/static/workflow/utils.js"></script>

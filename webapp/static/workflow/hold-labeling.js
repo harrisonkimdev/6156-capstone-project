@@ -505,6 +505,12 @@ async function submitHoldLabels() {
 
     const data = await response.json();
     showStatus('step-2', 'Labels saved successfully!', 'success');
+
+    // Mark labels as submitted
+    if (WorkflowState.setHoldLabelsSubmitted) {
+      WorkflowState.setHoldLabelsSubmitted(true);
+    }
+
     setStepCompleted('step-2');
     if (typeof updateDashboardStatus === 'function') {
       updateDashboardStatus();
@@ -520,9 +526,20 @@ async function submitHoldLabels() {
       // Show frame selection UI
       frameSelectionUI.style.display = 'block';
 
+      // Show "Save to Training Pool" button in header
+      const btnSaveToPool = document.getElementById('btn-save-to-pool');
+      if (btnSaveToPool) {
+        btnSaveToPool.style.display = 'block';
+      }
+
       // Load frames for key frame selection
       if (typeof loadFramesForSelection === 'function') {
         await loadFramesForSelection(WorkflowState.getCurrentUploadId(), WorkflowState.getCurrentVideoName());
+      }
+
+      // Update dashboard status to show step-3 as in-progress
+      if (typeof updateDashboardStatus === 'function') {
+        updateDashboardStatus();
       }
 
       // Automatically navigate to step 3
