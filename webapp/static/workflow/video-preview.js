@@ -28,6 +28,12 @@ function handleVideoFileSelection(event) {
     btnExtractFrames.disabled = false;
   }
 
+  // Hide drag-drop-zone when video is selected
+  const dragDropZone = document.getElementById('drag-drop-zone');
+  if (dragDropZone) {
+    dragDropZone.style.display = 'none';
+  }
+
   // Show loading state
   const container = document.getElementById('video-preview-container');
   if (container) {
@@ -126,4 +132,56 @@ function updateVideoPreview() {
   if (routeDifficultySelect) {
     WorkflowState.setRouteDifficulty(routeDifficultySelect.value);
   }
+}
+
+/**
+ * Clear video selection and restore drag-drop zone
+ */
+function clearVideoSelection() {
+  // Show drag-drop-zone again
+  const dragDropZone = document.getElementById('drag-drop-zone');
+  if (dragDropZone) {
+    dragDropZone.style.display = 'block';
+  }
+
+  // Hide video preview container
+  const previewContainer = document.getElementById('video-preview-container');
+  if (previewContainer) {
+    previewContainer.style.display = 'none';
+  }
+
+  // Clear file input
+  const videoFileInput = document.getElementById('video-file');
+  if (videoFileInput) {
+    videoFileInput.value = '';
+  }
+
+  // Disable extract frames button
+  const btnExtractFrames = document.getElementById('btn-extract-frames');
+  if (btnExtractFrames) {
+    btnExtractFrames.disabled = true;
+  }
+
+  // Clear preview image
+  const firstFramePreview = document.getElementById('first-frame-preview');
+  if (firstFramePreview) {
+    firstFramePreview.src = '';
+  }
+
+  // Clear preview filename
+  const previewFilename = document.getElementById('preview-filename');
+  if (previewFilename) {
+    previewFilename.textContent = '';
+  }
+
+  // Clear blob URLs to prevent memory leaks
+  if (WorkflowState.firstFrameImageUrl) {
+    URL.revokeObjectURL(WorkflowState.firstFrameImageUrl);
+    WorkflowState.setFirstFrameImageUrl(null);
+  }
+
+  // Reset workflow state
+  WorkflowState.setCurrentUploadId(null);
+  WorkflowState.setCurrentVideoName(null);
+  WorkflowState.setFirstFrameImageUrl(null);
 }

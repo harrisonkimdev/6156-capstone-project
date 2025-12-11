@@ -171,10 +171,21 @@ input[type="text"],
 input[type="number"],
 input[type="password"],
 input[type="email"],
-select,
 textarea {
   width: 100%;
   padding: 8px 12px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+select {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
   background-color: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: 6px;

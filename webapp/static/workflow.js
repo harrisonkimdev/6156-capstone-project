@@ -86,6 +86,16 @@ function setupEventListeners() {
     });
   }
 
+  // Remove video button
+  const btnRemoveVideo = document.getElementById('btn-remove-video');
+  if (btnRemoveVideo) {
+    btnRemoveVideo.addEventListener('click', () => {
+      if (typeof clearVideoSelection === 'function') {
+        clearVideoSelection();
+      }
+    });
+  }
+
   // Hold color and route difficulty dropdown changes
   const holdColorSelect = document.getElementById('hold-color');
   if (holdColorSelect) {
