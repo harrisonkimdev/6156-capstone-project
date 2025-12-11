@@ -421,7 +421,7 @@ tr:hover td {
 }
 
 .step-status {
-  margin-top: 16px;
+  margin-top: 24px;
   padding: 16px 20px;
   border-radius: 8px;
   font-size: 1rem;
@@ -437,6 +437,10 @@ tr:hover td {
   background-color: rgba(0, 102, 204, 0.15);
   border-color: #0066cc;
   color: #58a6ff;
+  font-size: 1.2rem;
+  font-weight: 600;
+  justify-content: center;
+  text-align: center;
 }
 
 .step-status.success {
