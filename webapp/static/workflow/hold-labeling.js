@@ -344,7 +344,8 @@ function highlightSelectedSegment(segmentId) {
       selectedItem.style.border = '4px solid #0066cc';
       selectedItem.style.borderLeft = selectedItem.style.border;
       selectedItem.style.backgroundColor = 'rgba(0, 102, 204, 0.15)';
-      selectedItem.style.boxShadow = '0 0 0 2px rgba(0, 102, 204, 0.3)';
+      // Glow effect를 더 강하게 - 여러 레이어의 그림자 추가
+      selectedItem.style.boxShadow = '0 0 0 2px rgba(0, 102, 204, 0.3), 0 0 20px rgba(0, 102, 204, 0.5), 0 0 40px rgba(0, 102, 204, 0.3)';
 
       // Scroll into view - block: 'center'로 변경하여 카드가 중앙에 오도록
       selectedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
