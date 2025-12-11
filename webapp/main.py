@@ -6,10 +6,11 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -293,9 +294,13 @@ async def run_frame_selector_inference(upload_id: str, video_name: str) -> None:
 @app.post("/api/workflow/extract-frames", response_class=JSONResponse)
 async def workflow_extract_frames(
     video: UploadFile = File(...),
+    trim_start: Optional[float] = Form(None),
+    trim_end: Optional[float] = Form(None),
 ) -> dict[str, object]:
     """Extract frames from uploaded video for workflow (accepts file upload)."""
     import sys
+    import subprocess
+    import cv2
     from pathlib import Path
     
     SRC_DIR = ROOT_DIR / "src"
@@ -326,10 +331,68 @@ async def workflow_extract_frames(
         
         print(f"[FRAME EXTRACTION] Video saved to: {video_path}")
         
-        # Extract frames - extract_frames_with_motion creates output_root/video_stem/
-        # We want frames directly in storage_dir, so we'll move them after extraction
+        # Check if video was trimmed
+        has_trimmed = trim_start is not None and trim_end is not None and trim_start < trim_end
+        original_first_frame_path = None
+        trimmed_first_frame_path = None
+        video_to_process = video_path
+        
+        # Extract original first frame (always)
+        try:
+            cap = cv2.VideoCapture(str(video_path))
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    original_first_frame_path = storage_dir / "original_first_frame.jpg"
+                    cv2.imwrite(str(original_first_frame_path), frame)
+                    print(f"[FRAME EXTRACTION] Saved original first frame to: {original_first_frame_path}")
+            cap.release()
+        except Exception as e:
+            print(f"[FRAME EXTRACTION] Warning: Failed to extract original first frame: {e}")
+        
+        # If trimmed, create trimmed video and extract trimmed first frame
+        if has_trimmed:
+            print(f"[FRAME EXTRACTION] Trimming video: {trim_start:.2f}s to {trim_end:.2f}s")
+            trimmed_video_path = videos_dir / f"{video_filename}_trimmed.mp4"
+            
+            try:
+                # Use ffmpeg to trim video
+                subprocess.run([
+                    'ffmpeg', '-y',  # Overwrite output file
+                    '-i', str(video_path),
+                    '-ss', str(trim_start),
+                    '-t', str(trim_end - trim_start),
+                    '-c', 'copy',  # Copy codec (fast, no re-encoding)
+                    '-avoid_negative_ts', 'make_zero',
+                    str(trimmed_video_path),
+                ], check=True, capture_output=True)
+                
+                video_to_process = trimmed_video_path
+                print(f"[FRAME EXTRACTION] Video trimmed successfully: {trimmed_video_path}")
+                
+                # Extract first frame from trimmed video
+                cap = cv2.VideoCapture(str(trimmed_video_path))
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret:
+                        trimmed_first_frame_path = storage_dir / "trimmed_first_frame.jpg"
+                        cv2.imwrite(str(trimmed_first_frame_path), frame)
+                        print(f"[FRAME EXTRACTION] Saved trimmed first frame to: {trimmed_first_frame_path}")
+                cap.release()
+                
+            except subprocess.CalledProcessError as e:
+                print(f"[FRAME EXTRACTION] Warning: Video trim failed: {e.stderr.decode() if e.stderr else e}")
+                print(f"[FRAME EXTRACTION] Using original video instead")
+                video_to_process = video_path
+                has_trimmed = False
+            except FileNotFoundError:
+                print(f"[FRAME EXTRACTION] Warning: ffmpeg not found, using original video")
+                video_to_process = video_path
+                has_trimmed = False
+        
+        # Extract frames from the video (original or trimmed)
         result = extract_frames_with_motion(
-            video_path,
+            video_to_process,
             output_root=storage_dir,
             motion_threshold=5.0,  # Default value
             similarity_threshold=0.8,  # Default value
@@ -401,6 +464,9 @@ async def workflow_extract_frames(
             "manifest_path": str(manifest_path) if manifest_path else None,
             "upload_id": upload_id,
             "video_name": video_name,
+            "has_trimmed": has_trimmed,
+            "original_first_frame_path": f"/repo/data/{upload_id}/original_first_frame.jpg" if original_first_frame_path else None,
+            "trimmed_first_frame_path": f"/repo/data/{upload_id}/trimmed_first_frame.jpg" if trimmed_first_frame_path else None,
         }
     except Exception as e:
         LOGGER.exception("Workflow frame extraction failed")

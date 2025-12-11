@@ -21,6 +21,20 @@ async function startAnalyzing() {
     const formData = new FormData();
     formData.append('video', videoFile);
 
+    // Add trim parameters if set
+    const trimStart = WorkflowState.getVideoTrimStart();
+    const trimEnd = WorkflowState.getVideoTrimEnd();
+    const duration = WorkflowState.getVideoDuration();
+
+    // Only send trim params if they differ from full video (user trimmed)
+    if (trimStart !== null && trimEnd !== null && duration !== null) {
+      const hasTrimmed = trimStart > 0.5 || (duration - trimEnd) > 0.5; // Allow 0.5s tolerance
+      if (hasTrimmed) {
+        formData.append('trim_start', trimStart.toString());
+        formData.append('trim_end', trimEnd.toString());
+      }
+    }
+
     const response = await fetch('/api/workflow/extract-frames', {
       method: 'POST',
       body: formData,
@@ -64,9 +78,15 @@ async function startAnalyzing() {
     // Automatically navigate to Step 2
     navigateToStep('step-2');
 
-    // Show hold labeling UI and automatically start SAM segmentation
+    // Show hold labeling UI with frame selection modal
     if (typeof showHoldLabelingUI === 'function') {
-      showHoldLabelingUI(uploadId, videoName, data.frame_count);
+      // Pass trim info and frame paths from server response
+      const trimInfo = {
+        hasTrimmed: data.has_trimmed || false,
+        originalFirstFramePath: data.original_first_frame_path || null,
+        trimmedFirstFramePath: data.trimmed_first_frame_path || null,
+      };
+      showHoldLabelingUI(uploadId, videoName, data.frame_count, trimInfo);
     }
 
   } catch (error) {
@@ -84,7 +104,7 @@ async function createSession() {
     showStatus('step-2', 'Session name input not found', 'error');
     return;
   }
-  
+
   const sessionName = sessionNameInput.value.trim();
   if (!sessionName) {
     showStatus('step-2', 'Please enter a session name', 'error');
@@ -143,7 +163,7 @@ async function startTraining() {
 
   const epochsInput = document.getElementById('train-epochs');
   const batchInput = document.getElementById('train-batch');
-  
+
   if (!epochsInput || !batchInput) {
     showStatus('step-3', 'Training parameters not found', 'error');
     return;
@@ -196,7 +216,7 @@ async function startTraining() {
     if (btnUploadGCS) {
       btnUploadGCS.disabled = true; // Enable after training completes
     }
-    
+
     if (typeof loadTrainingJobs === 'function') {
       loadTrainingJobs();
     }

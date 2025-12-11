@@ -20,6 +20,14 @@ const WorkflowState = {
   videoPreviewUrl: null, // URL for video preview element
   frameAspectRatio: null, // 'vertical' or 'horizontal'
 
+  // Video trim state
+  videoTrimStart: null,
+  videoTrimEnd: null,
+  videoDuration: null,
+  originalFirstFrameUrl: null, // First frame of original video
+  trimmedFirstFrameUrl: null,  // First frame at trim start position
+  selectedFrameForSegmentation: null, // 'original' or 'trimmed'
+
   // 3D viewer (currently disabled)
   threeViewer: null,
   current3DModelId: null,
@@ -126,6 +134,55 @@ const WorkflowState = {
     return this.frameAspectRatio;
   },
 
+  // Video trim getters/setters
+  setVideoTrimStart(value) {
+    this.videoTrimStart = value;
+  },
+
+  getVideoTrimStart() {
+    return this.videoTrimStart;
+  },
+
+  setVideoTrimEnd(value) {
+    this.videoTrimEnd = value;
+  },
+
+  getVideoTrimEnd() {
+    return this.videoTrimEnd;
+  },
+
+  setVideoDuration(value) {
+    this.videoDuration = value;
+  },
+
+  getVideoDuration() {
+    return this.videoDuration;
+  },
+
+  setOriginalFirstFrameUrl(value) {
+    this.originalFirstFrameUrl = value;
+  },
+
+  getOriginalFirstFrameUrl() {
+    return this.originalFirstFrameUrl;
+  },
+
+  setTrimmedFirstFrameUrl(value) {
+    this.trimmedFirstFrameUrl = value;
+  },
+
+  getTrimmedFirstFrameUrl() {
+    return this.trimmedFirstFrameUrl;
+  },
+
+  setSelectedFrameForSegmentation(value) {
+    this.selectedFrameForSegmentation = value;
+  },
+
+  getSelectedFrameForSegmentation() {
+    return this.selectedFrameForSegmentation;
+  },
+
   // Reset methods
   resetFrameSelection() {
     this.frameSelectionState = {
@@ -162,6 +219,13 @@ const WorkflowState = {
     this.videoPreviewUrl = null;
     this.frameAspectRatio = null;
     this.frameSelectionSavedToPool = false;
+    // Reset trim state
+    this.videoTrimStart = null;
+    this.videoTrimEnd = null;
+    this.videoDuration = null;
+    this.originalFirstFrameUrl = null;
+    this.trimmedFirstFrameUrl = null;
+    this.selectedFrameForSegmentation = null;
     this.resetFrameSelection();
     this.resetHoldLabeling();
   },
