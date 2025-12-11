@@ -5,7 +5,7 @@
  * success, error, warning, info 타입을 지원합니다.
  */
 
-(function() {
+(function () {
   'use strict';
 
   // 위젯 컨테이너 생성
@@ -60,7 +60,7 @@
     // 메시지 아이템 생성
     const item = document.createElement('div');
     item.className = `feedback-item ${type}`;
-    
+
     const icon = getIcon(type);
     item.innerHTML = `
       <span class="feedback-icon">${icon}</span>
@@ -141,7 +141,7 @@
    */
   function clearAll() {
     if (!container) return;
-    
+
     const items = container.querySelectorAll('.feedback-item');
     items.forEach(item => removeMessage(item));
   }

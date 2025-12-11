@@ -61,13 +61,10 @@
                 </div>
             </div>
 
-            <div id="error"
-                style="display: none; margin-top: 1rem; padding: 1rem; background: #fee; border-radius: 4px; color: #c33;">
-                <strong>Error:</strong> <span id="error-message"></span>
-            </div>
         </section>
     </main>
 
+    <script src="/static/feedback-widget.js"></script>
     <script>
         document.getElementById('grade-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -76,9 +73,7 @@
             if (!jobId) return;
 
             const resultsDiv = document.getElementById('results');
-            const errorDiv = document.getElementById('error');
             resultsDiv.style.display = 'none';
-            errorDiv.style.display = 'none';
 
             try {
                 const response = await fetch(`/api/jobs/${jobId}/route_grade`);
@@ -135,8 +130,11 @@
 
                 resultsDiv.style.display = 'block';
             } catch (error) {
-                document.getElementById('error-message').textContent = error.message;
-                errorDiv.style.display = 'block';
+                if (window.showFeedback) {
+                    window.showFeedback(`Error: ${error.message}`, 'error');
+                } else {
+                    console.error('Error:', error.message);
+                }
             }
         });
     </script>

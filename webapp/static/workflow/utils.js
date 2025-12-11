@@ -11,6 +11,7 @@
  * @param {string} type - Status type ('success', 'error', 'info')
  */
 function showStatus(stepId, message, type) {
+  // 기존 step-status 요소에 표시 (workflow 진행 상태 표시용)
   const el = document.getElementById(`status-${stepId}`);
   if (el) {
     // info 타입일 때 로딩 스피너 추가
@@ -21,6 +22,11 @@ function showStatus(stepId, message, type) {
     }
     el.className = `step-status ${type}`;
     el.style.display = 'flex';
+  }
+
+  // Feedback widget에도 표시 (error와 success만, info는 너무 많을 수 있음)
+  if (window.showFeedback && (type === 'error' || type === 'success')) {
+    window.showFeedback(message, type);
   }
 }
 

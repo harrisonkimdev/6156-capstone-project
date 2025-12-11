@@ -1634,3 +1634,136 @@ input[type="file"] {
   background: #b92b27 !important;
   transform: scale(1.05);
 }
+
+/* Feedback Widget Styles */
+.feedback-widget-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.feedback-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  min-width: 280px;
+  max-width: 400px;
+  pointer-events: auto;
+  transform: translateX(400px);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.feedback-item.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.feedback-item.hide {
+  transform: translateX(400px);
+  opacity: 0;
+}
+
+.feedback-icon {
+  font-size: 18px;
+  font-weight: bold;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feedback-message {
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.feedback-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.feedback-close:hover {
+  color: var(--text-primary);
+}
+
+/* Type-specific styles */
+.feedback-item.success {
+  background-color: rgba(46, 160, 67, 0.15);
+  border-color: #4ec970;
+}
+
+.feedback-item.success .feedback-icon {
+  color: #4ec970;
+}
+
+.feedback-item.error {
+  background-color: rgba(218, 54, 51, 0.15);
+  border-color: #f85149;
+}
+
+.feedback-item.error .feedback-icon {
+  color: #f85149;
+}
+
+.feedback-item.warning {
+  background-color: rgba(255, 149, 0, 0.15);
+  border-color: #ff9500;
+}
+
+.feedback-item.warning .feedback-icon {
+  color: #ff9500;
+}
+
+.feedback-item.info {
+  background-color: rgba(56, 139, 253, 0.15);
+  border-color: #58a6ff;
+}
+
+.feedback-item.info .feedback-icon {
+  color: #58a6ff;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .feedback-widget-container {
+    bottom: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+
+  .feedback-item {
+    min-width: auto;
+    max-width: none;
+  }
+}

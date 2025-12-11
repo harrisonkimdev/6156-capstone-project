@@ -133,11 +133,19 @@ async function uploadJobToGCS(jobId) {
     }
 
     const data = await response.json();
-    alert(`Model uploaded to: ${data.gcs_uri}`);
+    if (window.showFeedback) {
+      window.showFeedback(`Model uploaded to: ${data.gcs_uri}`, 'success');
+    } else {
+      alert(`Model uploaded to: ${data.gcs_uri}`);
+    }
     loadTrainingJobs();
 
   } catch (error) {
-    alert(`Error: ${error.message}`);
+    if (window.showFeedback) {
+      window.showFeedback(`Error: ${error.message}`, 'error');
+    } else {
+      alert(`Error: ${error.message}`);
+    }
   }
 }
 
@@ -159,18 +167,30 @@ async function cancelTrainingJob(jobId) {
     if (!response.ok) {
       if (response.status === 404) {
         // API endpoint not implemented yet
-        alert('Cancel functionality is not yet implemented on the server. The job will continue running.');
+        if (window.showFeedback) {
+          window.showFeedback('Cancel functionality is not yet implemented on the server. The job will continue running.', 'warning');
+        } else {
+          alert('Cancel functionality is not yet implemented on the server. The job will continue running.');
+        }
         return;
       }
       throw new Error(`Cancel failed: ${response.statusText}`);
     }
 
     const data = await response.json();
-    alert(`Training job cancelled successfully.`);
+    if (window.showFeedback) {
+      window.showFeedback('Training job cancelled successfully.', 'success');
+    } else {
+      alert(`Training job cancelled successfully.`);
+    }
     loadTrainingJobs();
 
   } catch (error) {
     console.error('Failed to cancel job:', error);
-    alert(`Error: ${error.message}\n\nNote: Cancel functionality may not be fully implemented yet.`);
+    if (window.showFeedback) {
+      window.showFeedback(`Error: ${error.message}. Note: Cancel functionality may not be fully implemented yet.`, 'error');
+    } else {
+      alert(`Error: ${error.message}\n\nNote: Cancel functionality may not be fully implemented yet.`);
+    }
   }
 }

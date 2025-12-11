@@ -532,12 +532,22 @@ function handleKeyPress(event) {
  * Show status message
  */
 function showStatus(message, type) {
+  // 기존 status-message 요소에 표시
   const el = document.getElementById('status-message');
-  el.textContent = message;
-  el.className = 'status-message ' + type;
+  if (el) {
+    el.textContent = message;
+    el.className = 'status-message ' + type;
 
-  if (!message) {
-    el.style.display = 'none';
+    if (!message) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = 'block';
+    }
+  }
+
+  // Feedback widget에도 표시 (error와 success만, info는 너무 많을 수 있음)
+  if (window.showFeedback && message && (type === 'error' || type === 'success')) {
+    window.showFeedback(message, type);
   }
 }
 
