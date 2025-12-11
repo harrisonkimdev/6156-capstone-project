@@ -443,6 +443,91 @@ Options: `--kind frames|models`, `--bucket`, `--prefix`
 
 ---
 
+## Google Drive Integration (Optional)
+
+Google Drive can be used as an alternative or additional storage backend, especially useful for training models on Google Colab.
+
+### Setup
+
+1. **Enable Google Drive API:**
+
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Library
+   - Search for "Google Drive API" and enable it
+
+2. **Create Service Account (for local automation):**
+
+   - Go to IAM & Admin → Service Accounts
+   - Create a new service account
+   - Grant "Editor" role
+   - Create JSON key and download it
+   - Save as `drive-service-account.json` in the project root
+
+3. **Add to `.env` file:**
+
+   ```bash
+   # Google Drive (optional)
+   GOOGLE_DRIVE_ENABLED=true
+   GOOGLE_DRIVE_ROOT_FOLDER_ID=your-folder-id
+   GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH=./drive-service-account.json
+
+   # Storage backend selection (gcs, drive, both)
+   STORAGE_BACKEND=both
+   ```
+
+4. **Find your Google Drive Folder ID:**
+
+   - Open the folder in Google Drive
+   - The folder ID is in the URL after `folders/`
+   - Example: `https://drive.google.com/drive/folders/1a2b3c4d5e` → ID: `1a2b3c4d5e`
+
+### Storage Backend Options
+
+| Backend | Description                                              |
+| ------- | -------------------------------------------------------- |
+| `gcs`   | Use only Google Cloud Storage (default)                  |
+| `drive` | Use only Google Drive                                    |
+| `both`  | Use both GCS and Google Drive (redundant storage)        |
+
+---
+
+## Training on Google Colab
+
+For training models using Google Colab's GPU resources:
+
+1. **Open the Colab notebook:**
+
+   - Navigate to `notebooks/train_on_colab.ipynb`
+   - Open in Google Colab
+
+2. **Prepare training data:**
+
+   Upload your training data to Google Drive with this structure:
+   ```
+   MyDrive/BetaMove/
+   ├── training_data/
+   │   ├── hold_detection/      # YOLO dataset
+   │   │   ├── dataset.yaml
+   │   │   ├── images/
+   │   │   └── labels/
+   │   └── pose_features/       # XGBoost features
+   │       └── features.json
+   └── models/                  # Trained models (output)
+   ```
+
+3. **Run training:**
+
+   - Enable GPU runtime: Runtime → Change runtime type → GPU
+   - Execute the notebook cells sequentially
+   - Models are saved to Google Drive automatically
+
+4. **Use trained models:**
+
+   - Download models from `MyDrive/BetaMove/models/`
+   - Place in the project's `models/` directory
+   - Or configure the application to load from Drive
+
+---
+
 ## Command Reference
 
 | Task                | Command                  | Key Options                                                                                            |

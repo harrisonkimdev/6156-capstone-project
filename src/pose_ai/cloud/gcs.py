@@ -200,6 +200,95 @@ class CloudStorageManager:
             object_name = f"{prefix}/{suffix}"
         return self.upload_file(model_path, bucket_name=bucket, object_name=object_name)
 
+    def upload_model_metadata(
+        self,
+        metadata: dict,
+        *,
+        job_id: str | None = None,
+        filename: str = "model_metadata.json",
+    ) -> str:
+        """Upload model metadata (hyperparameters, metrics, etc.) to GCS.
+        
+        This is a lightweight alternative to uploading the full model file.
+        Stores only metadata about the trained model, not the weights themselves.
+        
+        Args:
+            metadata: Dictionary containing model metadata (hyperparameters, metrics, etc.)
+            job_id: Optional job ID for organizing uploads.
+            filename: Name of the metadata file (default: "model_metadata.json").
+            
+        Returns:
+            GCS URI of uploaded metadata file.
+            
+        Raises:
+            ValueError: If model_bucket is not configured.
+        """
+        import json
+        import tempfile
+        
+        bucket = self.config.model_bucket
+        if not bucket:
+            raise ValueError("GCS_MODEL_BUCKET is required but not configured.")
+        
+        prefix = self.config.model_prefix.rstrip("/")
+        if job_id:
+            object_name = f"{prefix}/{job_id}/{filename}"
+        else:
+            object_name = f"{prefix}/{filename}"
+        
+        # Create temporary file with metadata
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            json.dump(metadata, tmp, indent=2, default=str)
+            tmp_path = Path(tmp.name)
+        
+        try:
+            return self.upload_file(
+                tmp_path, bucket_name=bucket, object_name=object_name, content_type="application/json"
+            )
+        finally:
+            # Clean up temporary file
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    def upload_training_data(
+        self,
+        data_path: Path | str,
+        *,
+        job_id: str | None = None,
+        data_type: str = "training_data",
+    ) -> str:
+        """Upload training data to GCS.
+        
+        Args:
+            data_path: Path to training data file or directory.
+            job_id: Optional job ID for organizing uploads.
+            data_type: Type of training data (e.g., "features", "dataset", "labels").
+            
+        Returns:
+            GCS URI of uploaded data.
+            
+        Raises:
+            ValueError: If model_bucket is not configured.
+        """
+        bucket = self.config.model_bucket  # Use model bucket for training data
+        if not bucket:
+            raise ValueError("GCS_MODEL_BUCKET is required but not configured.")
+        
+        data_path = Path(data_path)
+        prefix = f"{self.config.model_prefix.rstrip('/')}/training_data"
+        if job_id:
+            prefix = f"{prefix}/{job_id}"
+        
+        if data_path.is_file():
+            suffix = data_path.name
+            object_name = f"{prefix}/{data_type}/{suffix}"
+            return self.upload_file(data_path, bucket_name=bucket, object_name=object_name)
+        else:
+            # Upload directory
+            folder_name = data_path.name
+            object_prefix = f"{prefix}/{data_type}/{folder_name}"
+            return self.upload_directory(data_path, bucket_name=bucket, prefix=object_prefix)
+
     # ------------------------------------------------------------------ #
     # Retention helpers
     # ------------------------------------------------------------------ #

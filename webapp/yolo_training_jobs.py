@@ -38,7 +38,11 @@ class YoloTrainJob:
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     best_model_path: Optional[Path] = None
-    gcs_uri: Optional[str] = None
+    gcs_uri: Optional[str] = None  # Model weights URI (if uploaded)
+    metadata_uri: Optional[str] = None  # Metadata URI (always uploaded)
+    training_data_uri: Optional[str] = None  # Training data URI (if uploaded)
+    drive_model_id: Optional[str] = None  # Google Drive model ID (if uploaded)
+    drive_metadata_id: Optional[str] = None  # Google Drive metadata ID (if uploaded)
     metrics: Dict = field(default_factory=dict)
     _log: List[str] = field(default_factory=list)
     
@@ -53,6 +57,10 @@ class YoloTrainJob:
         metrics: Dict,
         best_model_path: Path,
         gcs_uri: Optional[str] = None,
+        metadata_uri: Optional[str] = None,
+        training_data_uri: Optional[str] = None,
+        drive_model_id: Optional[str] = None,
+        drive_metadata_id: Optional[str] = None,
     ) -> None:
         """Mark job as completed."""
         self.status = YoloTrainStatus.COMPLETED
@@ -60,6 +68,10 @@ class YoloTrainJob:
         self.metrics = metrics
         self.best_model_path = best_model_path
         self.gcs_uri = gcs_uri
+        self.metadata_uri = metadata_uri
+        self.training_data_uri = training_data_uri
+        self.drive_model_id = drive_model_id
+        self.drive_metadata_id = drive_metadata_id
         self.log(f"Training completed: {metrics}")
     
     def fail(self, exc: Exception) -> None:
@@ -93,6 +105,10 @@ class YoloTrainJob:
             "completed_at": self.completed_at,
             "best_model_path": str(self.best_model_path) if self.best_model_path else None,
             "gcs_uri": self.gcs_uri,
+            "metadata_uri": self.metadata_uri,
+            "training_data_uri": self.training_data_uri,
+            "drive_model_id": self.drive_model_id,
+            "drive_metadata_id": self.drive_metadata_id,
             "metrics": self.metrics,
         }
 
@@ -155,12 +171,17 @@ class YoloTrainManager:
         ]
 
 
-def execute_yolo_training(job: YoloTrainJob, upload_to_gcs: bool = False) -> None:
+def execute_yolo_training(
+    job: YoloTrainJob,
+    upload_to_gcs: bool = False,
+    upload_training_data: bool = False,
+) -> None:
     """Execute YOLO training job (to be run in background task).
     
     Args:
-        job: YoloTrainJob instance
-        upload_to_gcs: Whether to upload trained model to GCS
+        job: YoloTrainJob instance.
+        upload_to_gcs: Whether to upload trained model weights to storage.
+        upload_training_data: Whether to upload training data to storage.
     """
     job.start()
     
@@ -193,28 +214,82 @@ def execute_yolo_training(job: YoloTrainJob, upload_to_gcs: bool = False) -> Non
         
         # Extract metrics
         metrics = {}
-        if hasattr(results, 'results_dict'):
+        if hasattr(results, "results_dict"):
             metrics = results.results_dict
         
-        # Upload to GCS if requested
+        # Prepare metadata
+        metadata = {
+            "job_id": job.id,
+            "model_type": "yolo",
+            "base_model": job.model,
+            "hyperparameters": {
+                "epochs": job.epochs,
+                "batch": job.batch,
+                "imgsz": job.imgsz,
+            },
+            "metrics": metrics,
+            "dataset_yaml": str(job.dataset_yaml),
+            "best_model_path": str(best_model_path),
+            "created_at": job.created_at,
+            "completed_at": datetime.now().isoformat(),
+        }
+        
+        # Upload to storage using unified storage manager
+        metadata_uri = None
         gcs_uri = None
-        if upload_to_gcs:
-            try:
-                from pose_ai.cloud.gcs import get_gcs_manager
-                gcs_manager = get_gcs_manager()
-                
-                job.log("Uploading model to GCS...")
-                gcs_uri = gcs_manager.upload_model(best_model_path, job_id=job.id)
-                job.log(f"Model uploaded to: {gcs_uri}")
-                
-            except Exception as exc:
-                job.log(f"Failed to upload to GCS: {exc}")
-                LOGGER.error("GCS upload failed: %s", exc)
+        training_data_uri = None
+        drive_model_id = None
+        drive_metadata_id = None
+        
+        try:
+            from pose_ai.cloud.storage import get_storage_manager
+            storage = get_storage_manager()
+            
+            # Always upload metadata
+            job.log("Uploading model metadata to storage...")
+            metadata_result = storage.upload_model_metadata(metadata, job_id=job.id)
+            metadata_uri = metadata_result.gcs_uri
+            drive_metadata_id = metadata_result.drive_id
+            if metadata_uri:
+                job.log(f"Metadata uploaded to GCS: {metadata_uri}")
+            if drive_metadata_id:
+                job.log(f"Metadata uploaded to Google Drive: {drive_metadata_id}")
+            
+            # Optionally upload model weights
+            if upload_to_gcs:
+                job.log("Uploading model weights to storage...")
+                model_result = storage.upload_model(best_model_path, job_id=job.id)
+                gcs_uri = model_result.gcs_uri
+                drive_model_id = model_result.drive_id
+                if gcs_uri:
+                    job.log(f"Model uploaded to GCS: {gcs_uri}")
+                if drive_model_id:
+                    job.log(f"Model uploaded to Google Drive: {drive_model_id}")
+            
+            # Optionally upload training data
+            if upload_training_data and job.dataset_yaml.parent.exists():
+                job.log("Uploading training data to storage...")
+                data_result = storage.upload_training_data(
+                    job.dataset_yaml.parent, job_id=job.id, data_type="dataset"
+                )
+                training_data_uri = data_result.gcs_uri
+                if training_data_uri:
+                    job.log(f"Training data uploaded to GCS: {training_data_uri}")
+                if data_result.drive_id:
+                    job.log(f"Training data uploaded to Google Drive: {data_result.drive_id}")
+            
+        except Exception as exc:
+            job.log(f"Storage upload failed: {exc}")
+            LOGGER.error("Storage upload failed: %s", exc)
         
         job.complete(
             metrics=metrics,
             best_model_path=best_model_path,
             gcs_uri=gcs_uri,
+            metadata_uri=metadata_uri,
+            training_data_uri=training_data_uri,
+            drive_model_id=drive_model_id,
+            drive_metadata_id=drive_metadata_id,
         )
         
     except Exception as exc:

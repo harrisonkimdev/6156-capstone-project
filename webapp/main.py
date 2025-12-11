@@ -2514,6 +2514,160 @@ async def upload_trained_model_to_gcs(job_id: str):
 
 
 # ============================================================================
+# Storage and Training Data Endpoints
+# ============================================================================
+
+@app.get("/api/storage/status")
+async def get_storage_status() -> dict[str, object]:
+    """Get storage backend status (GCS and Google Drive availability)."""
+    try:
+        from pose_ai.cloud.storage import get_storage_manager
+        storage = get_storage_manager()
+        return storage.get_backend_status()
+    except Exception as exc:
+        LOGGER.error("Failed to get storage status: %s", exc)
+        return {
+            "gcs_enabled": False,
+            "gcs_available": False,
+            "drive_enabled": False,
+            "drive_available": False,
+            "backend": "unknown",
+            "error": str(exc),
+        }
+
+
+@app.post("/api/training/upload-data")
+async def upload_training_data_endpoint(
+    file: UploadFile = File(...),
+    job_id: str | None = None,
+    data_type: str = "features",
+) -> dict[str, object]:
+    """Upload training data file to storage (GCS and/or Google Drive).
+    
+    Args:
+        file: Training data file to upload.
+        job_id: Optional job ID for organizing uploads.
+        data_type: Type of training data (features, dataset, labels).
+        
+    Returns:
+        Upload result with URIs/IDs for each backend.
+    """
+    try:
+        # Save file temporarily
+        temp_dir = _ensure_directory(UPLOAD_ROOT / "training_data")
+        temp_path = temp_dir / file.filename
+        with temp_path.open("wb") as f:
+            file.file.seek(0)
+            shutil.copyfileobj(file.file, f)
+        file.file.close()
+        
+        # Upload to storage
+        from pose_ai.cloud.storage import get_storage_manager
+        storage = get_storage_manager()
+        result = storage.upload_training_data(temp_path, job_id=job_id, data_type=data_type)
+        
+        return {
+            "status": "uploaded",
+            "filename": file.filename,
+            "gcs_uri": result.gcs_uri,
+            "drive_id": result.drive_id,
+        }
+        
+    except Exception as exc:
+        LOGGER.error("Failed to upload training data: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
+
+
+@app.get("/api/training/list-data")
+async def list_training_data() -> dict[str, object]:
+    """List locally stored training data files.
+    
+    Returns:
+        List of training data files with metadata.
+    """
+    try:
+        training_data_dir = UPLOAD_ROOT / "training_data"
+        if not training_data_dir.exists():
+            return {"files": [], "total": 0}
+        
+        files = []
+        for file_path in sorted(training_data_dir.glob("*")):
+            if file_path.is_file():
+                stat = file_path.stat()
+                files.append({
+                    "name": file_path.name,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                })
+        
+        return {"files": files, "total": len(files)}
+        
+    except Exception as exc:
+        LOGGER.error("Failed to list training data: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to list data: {exc}")
+
+
+@app.get("/api/models/{job_id}/metadata")
+async def get_model_metadata(job_id: str) -> dict[str, object]:
+    """Get model metadata for a training job.
+    
+    Checks both YOLO and XGBoost job managers.
+    
+    Args:
+        job_id: Training job ID.
+        
+    Returns:
+        Model metadata including hyperparameters, metrics, and storage URIs.
+    """
+    # Check YOLO jobs
+    yolo_job = yolo_train_manager.get_job(job_id)
+    if yolo_job:
+        return {
+            "job_type": "yolo",
+            "job_id": job_id,
+            "status": yolo_job.status.value,
+            "model": yolo_job.model,
+            "hyperparameters": {
+                "epochs": yolo_job.epochs,
+                "batch": yolo_job.batch,
+                "imgsz": yolo_job.imgsz,
+            },
+            "metrics": yolo_job.metrics,
+            "storage": {
+                "gcs_uri": yolo_job.gcs_uri,
+                "metadata_uri": yolo_job.metadata_uri,
+                "training_data_uri": yolo_job.training_data_uri,
+                "drive_model_id": yolo_job.drive_model_id,
+                "drive_metadata_id": yolo_job.drive_metadata_id,
+            },
+            "created_at": yolo_job.created_at,
+            "completed_at": yolo_job.completed_at,
+        }
+    
+    # Check XGBoost jobs
+    xgb_job = train_manager.get(job_id)
+    if xgb_job:
+        return {
+            "job_type": "xgboost",
+            "job_id": job_id,
+            "status": xgb_job.status.value,
+            "hyperparameters": xgb_job.params,
+            "metrics": xgb_job.metrics,
+            "storage": {
+                "gcs_uri": xgb_job.model_uri,
+                "metadata_uri": xgb_job.metadata_uri,
+                "training_data_uri": xgb_job.training_data_uri,
+                "drive_model_id": xgb_job.drive_model_id,
+                "drive_metadata_id": xgb_job.drive_metadata_id,
+            },
+            "created_at": xgb_job.created_at.isoformat(),
+            "finished_at": xgb_job.finished_at.isoformat() if xgb_job.finished_at else None,
+        }
+    
+    raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+
+# ============================================================================
 # Middleware
 # ============================================================================
 
