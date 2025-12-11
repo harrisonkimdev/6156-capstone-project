@@ -237,38 +237,37 @@
                     </button>
                   </div>
                 </div>
+                <div class="form-grid" id="video-metadata-grid" style="display: none;">
+                  <div class="form-group">
+                    <label>Hold Color <span style="font-size: 11px; color: #888;">(Optional)</span></label>
+                    <select id="hold-color">
+                      <option value="" selected>Not selected</option>
+                      <option value="red">🔴 Red</option>
+                      <option value="blue">🔵 Blue</option>
+                      <option value="green">🟢 Green</option>
+                      <option value="yellow">🟡 Yellow</option>
+                      <option value="purple">🟣 Purple</option>
+                      <option value="black">⚫ Black</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Route Difficulty <span style="font-size: 11px; color: #888;">(Optional)</span></label>
+                    <select id="route-difficulty">
+                      <option value="" selected>Not selected</option>
+                      <option value="pink">🟪 Pink (Easier)</option>
+                      <option value="black">⬛ Black</option>
+                      <option value="yellow">🟨 Yellow</option>
+                      <option value="orange">🟧 Orange</option>
+                      <option value="white">⬜ White</option>
+                      <option value="purple">🟪 Purple</option>
+                      <option value="green">🟩 Green</option>
+                      <option value="blue">🟦 Blue (Harder)</option>
+                    </select>
+                  </div>
+                </div>
                 <div class="preview-frame">
                   <img id="first-frame-preview" src="" alt="First frame">
                 </div>
-              </div>
-            </div>
-
-            <div class="form-grid">
-              <div class="form-group">
-                <label>Hold Color <span style="font-size: 11px; color: #888;">(Optional)</span></label>
-                <select id="hold-color">
-                  <option value="" selected>Not selected</option>
-                  <option value="red">🔴 Red</option>
-                  <option value="blue">🔵 Blue</option>
-                  <option value="green">🟢 Green</option>
-                  <option value="yellow">🟡 Yellow</option>
-                  <option value="purple">🟣 Purple</option>
-                  <option value="black">⚫ Black</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Route Difficulty <span style="font-size: 11px; color: #888;">(Optional)</span></label>
-                <select id="route-difficulty">
-                  <option value="" selected>Not selected</option>
-                  <option value="pink">🟪 Pink (Easier)</option>
-                  <option value="black">⬛ Black</option>
-                  <option value="yellow">🟨 Yellow</option>
-                  <option value="orange">🟧 Orange</option>
-                  <option value="white">⬜ White</option>
-                  <option value="purple">🟪 Purple</option>
-                  <option value="green">🟩 Green</option>
-                  <option value="blue">🟦 Blue (Harder)</option>
-                </select>
               </div>
             </div>
             <div id="status-step-1" class="step-status" style="display: none;"></div>

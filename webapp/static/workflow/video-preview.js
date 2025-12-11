@@ -38,6 +38,10 @@ function handleVideoFileSelection(event) {
   const container = document.getElementById('video-preview-container');
   if (container) {
     container.style.display = 'block';
+    const metadataGrid = document.getElementById('video-metadata-grid');
+    if (metadataGrid) {
+      metadataGrid.style.display = 'grid';
+    }
     const previewFilename = document.getElementById('preview-filename');
     if (previewFilename) {
       previewFilename.textContent = file.name;
@@ -148,6 +152,12 @@ function clearVideoSelection() {
   const previewContainer = document.getElementById('video-preview-container');
   if (previewContainer) {
     previewContainer.style.display = 'none';
+  }
+
+  // Hide metadata grid
+  const metadataGrid = document.getElementById('video-metadata-grid');
+  if (metadataGrid) {
+    metadataGrid.style.display = 'none';
   }
 
   // Clear file input
