@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable, List, Tuple
@@ -69,6 +70,83 @@ def _upload_frame_directory(job: PipelineJob, frame_dir: Path, log: Callable[[st
     log(f"Uploaded frames to {uri}")
 
 
+def apply_frame_selector_model(
+    manifest_path: Path,
+    frame_selector_model_path: Path,
+    threshold: float = 0.5,
+    log: Callable[[str], None] = print,
+) -> Path:
+    """Apply BiLSTM model to select key frames and filter manifest.
+    
+    Args:
+        manifest_path: Path to original manifest.json
+        frame_selector_model_path: Path to trained BiLSTM model
+        threshold: Key frame prediction threshold
+        log: Logging function
+    
+    Returns:
+        Filtered manifest path (may differ from original)
+    """
+    try:
+        from pose_ai.service.frame_selector_service import predict_key_frames
+        
+        workflow_dir = manifest_path.parent
+        
+        # Check all_frames/ directory
+        all_frames_dir = workflow_dir / 'all_frames'
+        if not all_frames_dir.exists():
+            log("Warning: all_frames/ directory not found, skipping frame selector")
+            return manifest_path
+        
+        # Predict key frames using BiLSTM
+        log("Applying BiLSTM frame selector model...")
+        results = predict_key_frames(
+            workflow_dir=workflow_dir,
+            model_path=frame_selector_model_path,
+            threshold=threshold,
+            fps=30.0,  # TODO: Extract from manifest or pass as parameter
+        )
+        
+        # Get frame names from selected_frames/ directory
+        selected_frames_dir = workflow_dir / 'selected_frames'
+        if not selected_frames_dir.exists():
+            log("Warning: selected_frames/ directory not found after prediction")
+            return manifest_path
+        
+        selected_frame_files = {f.name for f in selected_frames_dir.glob("*.jpg")}
+        log(f"BiLSTM selected {len(selected_frame_files)} key frames")
+        
+        # Update manifest.json: filter only frames in selected_frames
+        with open(manifest_path, 'r') as f:
+            manifest_data = json.load(f)
+        
+        original_frame_count = len(manifest_data.get('frames', []))
+        
+        # Filter only frames in selected_frames
+        filtered_frames = [
+            frame for frame in manifest_data.get('frames', [])
+            if Path(frame['image_path']).name in selected_frame_files
+        ]
+        
+        if not filtered_frames:
+            log("Warning: No frames matched after filtering, using original frames")
+            return manifest_path
+        
+        manifest_data['frames'] = filtered_frames
+        
+        # Save updated manifest
+        updated_manifest_path = workflow_dir / 'manifest_filtered.json'
+        with open(updated_manifest_path, 'w') as f:
+            json.dump(manifest_data, f, indent=2)
+        
+        log(f"Filtered manifest: {len(filtered_frames)} key frames (from {original_frame_count} total)")
+        return updated_manifest_path
+        
+    except Exception as exc:
+        log(f"Frame selector model failed: {exc}, using original frames")
+        return manifest_path
+
+
 def run_pipeline_stage(
     *,
     job: PipelineJob,
@@ -103,6 +181,7 @@ def run_pipeline_stage(
         log(f"[{index + 1}] Extracting frames from {video_path.name} (method: {extraction_method})")
         
         # Use advanced motion-based extraction
+        # save_all_frames=True: Save all frames to all_frames/ for BiLSTM analysis
         result = extract_frames_with_motion(
             video_path,
             output_root=output_dir,
@@ -114,6 +193,7 @@ def run_pipeline_stage(
             initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
             write_manifest=True,
             overwrite=False,
+            save_all_frames=True,  # Production: Save all frames for BiLSTM frame selector
         )
         
         if result.manifest_path is None:
@@ -216,6 +296,28 @@ def run_pipeline_stage(
         log("No videos found; nothing to process.")
         return [], [], []
 
+    # Apply BiLSTM frame selector (if production model is configured)
+    production_frame_selector_model = os.getenv("PRODUCTION_FRAME_SELECTOR_MODEL")
+    production_frame_selector_threshold = float(os.getenv("PRODUCTION_FRAME_SELECTOR_THRESHOLD", "0.5"))
+    
+    if production_frame_selector_model and Path(production_frame_selector_model).exists():
+        log(f"BiLSTM frame selector model found: {production_frame_selector_model}")
+        filtered_manifests = []
+        for manifest_path in manifests:
+            filtered_manifest = apply_frame_selector_model(
+                manifest_path,
+                Path(production_frame_selector_model),
+                threshold=production_frame_selector_threshold,
+                log=log,
+            )
+            filtered_manifests.append(filtered_manifest)
+        manifests = filtered_manifests
+    else:
+        if production_frame_selector_model:
+            log(f"Warning: Frame selector model not found at {production_frame_selector_model}, using all frames")
+        else:
+            log("No BiLSTM frame selector model configured, using motion-based frames")
+
     visualization_items: list[dict[str, str]] = []
     pose_samples: list[dict[str, object]] = []
 
@@ -228,10 +330,22 @@ def run_pipeline_stage(
             frame_dir = manifest_path.parent
             image_paths = [p for p in frame_dir.glob("*.jpg")]
             if image_paths:
-                log(f"Extracting holds (model {yolo_config.get('model_name','yolov8n.pt')})")
+                # Check production YOLO model path (configurable via environment variable)
+                production_yolo_model = os.getenv(
+                    "PRODUCTION_YOLO_MODEL",
+                    str(ROOT_DIR / "runs" / "hold_type" / "train" / "weights" / "best.pt")
+                )
+                if Path(production_yolo_model).exists():
+                    yolo_model_name = production_yolo_model
+                    log(f"Using production YOLO model: {production_yolo_model}")
+                else:
+                    yolo_model_name = str(yolo_config.get("model_name") or "yolov8n.pt")
+                    log(f"Production YOLO model not found at {production_yolo_model}, using default: {yolo_model_name}")
+                
+                log(f"Extracting holds (model {yolo_model_name})")
                 clustered = extract_and_cluster_holds(
                     image_paths,
-                    model_name=str(yolo_config.get("model_name") or "yolov8n.pt"),
+                    model_name=yolo_model_name,
                     device=yolo_config.get("device"),
                 )
                 if clustered:
