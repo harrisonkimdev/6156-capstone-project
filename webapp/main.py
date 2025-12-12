@@ -2021,14 +2021,6 @@ async def validate_step_output(step_name: str) -> dict[str, object]:
     }
 
 
-@app.get("/testing", response_class=HTMLResponse)
-async def testing_page(request: Request) -> HTMLResponse:
-    """Testing page for individual step execution."""
-    if not _is_feature_enabled("ENABLE_TESTING_ENDPOINTS", default=False):
-        raise HTTPException(status_code=404, detail="Testing endpoints are disabled. Set ENABLE_TESTING_ENDPOINTS=true to enable.")
-    return templates.TemplateResponse("testing.html", {"request": request})
-
-
 # ============================================================================
 # Hold Labeling Endpoints
 # ============================================================================
