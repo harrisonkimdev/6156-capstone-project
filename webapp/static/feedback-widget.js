@@ -80,7 +80,12 @@
    * @param {Array} actions - Action button array [{label: string, callback: function, style?: 'primary'|'secondary'}]
    */
   function showFeedback(message, type = 'info', duration = defaultDuration, actions = null) {
-    if (!message) return;
+    if (!message) {
+      console.warn('[Feedback Widget] showFeedback called with empty message');
+      return;
+    }
+
+    console.log('[Feedback Widget] showFeedback called:', { message, type, duration, hasActions: !!actions });
 
     // Log to console
     const consoleMethod = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
