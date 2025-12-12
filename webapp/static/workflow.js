@@ -38,9 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof loadHoldDetectionPool === 'function') {
     loadHoldDetectionPool();
   }
-  if (typeof loadSummaryInfo === 'function') {
-    loadSummaryInfo();
-  }
 
   // Poll for updates every 5 seconds
   setInterval(() => {
@@ -49,9 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (typeof updateDashboardStatus === 'function') {
       updateDashboardStatus();
-    }
-    if (typeof loadSummaryInfo === 'function') {
-      loadSummaryInfo();
     }
     // Load training pools if visible
     const trainingPoolContent = document.getElementById('training-pool-jobs-content');
