@@ -152,13 +152,14 @@ class FrameExtractionOptions(BaseModel):
 
 
 class PipelineRequest(BaseModel):
+    """Production API request for video analysis pipeline.
+    
+    Simplified for external users - only requires video_dir and optional metadata.
+    All other options (output_dir, segmentation, yolo, frame_extraction) are handled
+    automatically using production defaults.
+    """
     video_dir: str = Field(..., description="Directory containing source videos")
-    output_dir: str = Field("data/frames", description="Directory to write pipeline artifacts")
-    source_uri: str | None = Field(None, description="Optional GCS URI referencing the uploaded video")
     metadata: MediaMetadata | None = Field(None, description="Optional capture metadata")
-    yolo: YoloOptions = Field(default_factory=YoloOptions)
-    segmentation: SegmentationOptions = Field(default_factory=SegmentationOptions)
-    frame_extraction: FrameExtractionOptions = Field(default_factory=FrameExtractionOptions)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -209,19 +210,37 @@ async def get_job_logs(job_id: str) -> dict[str, object]:
 
 @app.post("/api/jobs", status_code=201)
 async def create_job(payload: PipelineRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
+    """Create a production analysis job from external API request.
+    
+    Production defaults:
+    - output_dir: Same as video_dir (workflow style)
+    - segmentation: Always enabled
+    - yolo: Production model from environment variable
+    - frame_extraction: Default values (BiLSTM will select key frames)
+    - GCS: Handled automatically via .env configuration
+    """
+    # Use video_dir as output_dir (workflow style - all artifacts in same directory)
+    output_dir = payload.video_dir
+    
+    # Prepare metadata with production defaults
     metadata_payload = payload.metadata.dict() if payload.metadata else {}
-    if payload.source_uri:
-        metadata_payload = dict(metadata_payload)
-        metadata_payload["source_uri"] = payload.source_uri
-    # Add segmentation and frame extraction options to metadata
-    metadata_payload["segmentation_options"] = payload.segmentation.dict()
-    metadata_payload["frame_extraction_options"] = payload.frame_extraction.dict()
+    
+    # Segmentation is always enabled in production
+    segmentation_options = SegmentationOptions(enabled=True).dict()
+    metadata_payload["segmentation_options"] = segmentation_options
+    
+    # Frame extraction options with defaults (BiLSTM will select key frames)
+    frame_extraction_options = FrameExtractionOptions().dict()
+    metadata_payload["frame_extraction_options"] = frame_extraction_options
+    
     metadata_payload = metadata_payload or None
+    
+    # YOLO options are None - production model will be used from environment variable
     job = job_manager.create_job(
         video_dir=payload.video_dir,
-        output_dir=payload.output_dir,
+        output_dir=output_dir,
         metadata=metadata_payload,
-        yolo_options=payload.yolo.dict(),
+        yolo_options=None,  # Production model from PRODUCTION_YOLO_MODEL env var
     )
     background_tasks.add_task(execute_job, job)
     return job.as_dict()

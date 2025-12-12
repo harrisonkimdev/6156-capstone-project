@@ -275,69 +275,52 @@ file: <video_file>
 
 #### Create Pipeline Job
 
+**Production API** - Simplified for external users. Only `video_dir` and optional `metadata` are required. All other options (output directory, segmentation, YOLO model, frame extraction) are automatically handled using production defaults.
+
 ```http
 POST /api/jobs
 Content-Type: application/json
 
 {
-  "video_dir": "data/videos",
-  "output_dir": "data/frames",
-  "interval": 1.5,
+  "video_dir": "data/uploads/IMG_3708_251211_105719AM",
   "metadata": {
     "route_name": "V5 Problem",
-    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
-    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "gym_location": "Climbing Gym",
     "climber_height": 175.0,
     "climber_wingspan": 180.0,
-    "climber_flexibility": 0.7
-  },
-  "yolo": {
-    "enabled": true,
-    "model_name": "yolov8n.pt",
-    "min_confidence": 0.35
-  },
-  "frame_extraction": {
-    "method": "motion_pose",
-    "motion_threshold": 5.0,
-    "similarity_threshold": 0.8,
-    "min_frame_interval": 5,
-    "use_optical_flow": true,
-    "use_pose_similarity": true,
-    "initial_sampling_rate": 0.1
-  },
-  "segmentation": {
-    "enabled": true,
-    "method": "yolo",
-    "model_name": "yolov8n-seg.pt",
-    "export_masks": true,
-    "group_by_color": true,
-    "hue_tolerance": 10,
-    "sat_tolerance": 50,
-    "val_tolerance": 50
+    "climber_flexibility": 0.7,
+    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
+    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "camera_orientation": "portrait",
+    "notes": "First attempt",
+    "tags": ["overhang", "crimps"]
   }
 }
 ```
 
-**Frame Extraction Options**:
+**Request Fields**:
 
-- `method`: `"interval"` (time-based), `"motion"` (motion-based), or `"motion_pose"` (motion + pose similarity)
-- `motion_threshold`: Minimum motion score (default: 5.0)
-- `similarity_threshold`: Maximum pose similarity for `motion_pose` method (default: 0.8)
-- `min_frame_interval`: Minimum frames between selections (default: 5)
-- `use_optical_flow`: Enable optical flow for motion detection (default: true)
-- `use_pose_similarity`: Enable pose similarity filtering (default: true, only for `motion_pose`)
-- `initial_sampling_rate`: Initial frame sampling rate in seconds (default: 0.1)
+- `video_dir` (required): Directory containing source videos (typically from `/api/upload`)
+- `metadata` (optional): Capture metadata including:
+  - `route_name`: Route or boulder name
+  - `gym_location`: Venue or wall identifier
+  - `climber_height`: Height in cm (0-250)
+  - `climber_wingspan`: Wingspan in cm (0-300)
+  - `climber_flexibility`: Flexibility score 0-1
+  - `imu_quaternion`: Device orientation as quaternion [w, x, y, z]
+  - `imu_euler_angles`: Device orientation as Euler angles [pitch, roll, yaw] in degrees
+  - `imu_timestamp`: IMU reading timestamp (unix milliseconds)
+  - `camera_orientation`: "portrait", "landscape", or "other"
+  - `notes`: Freeform notes
+  - `tags`: List of search tags
 
-**Segmentation Options**:
+**Production Defaults** (automatically applied):
 
-- `enabled`: Enable YOLO segmentation (default: false)
-- `method`: Segmentation method, currently only `"yolo"` (default: "yolo")
-- `model_name`: YOLO segmentation model name (default: "yolov8n-seg.pt")
-- `export_masks`: Export segmentation masks as images (default: true)
-- `group_by_color`: Group holds by color to identify routes (default: true)
-- `hue_tolerance`: Hue tolerance for color clustering (default: 10)
-- `sat_tolerance`: Saturation tolerance for color clustering (default: 50)
-- `val_tolerance`: Value tolerance for color clustering (default: 50)
+- **Output Directory**: Same as `video_dir` (all artifacts stored in the same directory, workflow style)
+- **Segmentation**: Always enabled (YOLO segmentation with default settings)
+- **YOLO Model**: Production model from `PRODUCTION_YOLO_MODEL` environment variable
+- **Frame Extraction**: All frames extracted, then BiLSTM model selects key frames (from `PRODUCTION_FRAME_SELECTOR_MODEL`)
+- **GCS Upload**: Handled automatically via `.env` configuration
 
 #### Other Endpoints
 
