@@ -49,6 +49,11 @@
   function showFeedback(message, type = 'info', duration = defaultDuration, actions = null) {
     if (!message) return;
 
+    // Log to console
+    const consoleMethod = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
+    const icon = getIcon(type);
+    console[consoleMethod](`[Feedback ${icon}] ${message}`);
+
     // Initialize widget
     initWidget();
 
@@ -59,8 +64,11 @@
     }
 
     // Set duration to 0 if actions present (keep until user clicks)
+    // Otherwise use default duration (5 seconds) unless explicitly set
     if (actions && actions.length > 0 && duration === defaultDuration) {
       duration = 0;
+    } else if (duration === undefined || duration === defaultDuration) {
+      duration = defaultDuration;
     }
 
     // Create message item

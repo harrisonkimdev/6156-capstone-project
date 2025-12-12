@@ -1918,7 +1918,7 @@ input[type="file"] {
 
 /* Type-specific styles */
 .feedback-item.success {
-  background-color: rgba(46, 160, 67, 0.6);
+  background-color: rgba(46, 160, 67, 1);
   border-color: #4ec970;
 }
 
@@ -1927,7 +1927,7 @@ input[type="file"] {
 }
 
 .feedback-item.error {
-  background-color: rgba(218, 54, 51, 0.6);
+  background-color: rgba(218, 54, 51, 1);
   border-color: #f85149;
 }
 
@@ -1936,7 +1936,7 @@ input[type="file"] {
 }
 
 .feedback-item.warning {
-  background-color: rgba(255, 149, 0, 0.6);
+  background-color: rgba(255, 149, 0, 1);
   border-color: #ff9500;
 }
 
@@ -1945,7 +1945,7 @@ input[type="file"] {
 }
 
 .feedback-item.info {
-  background-color: rgba(56, 139, 253, 0.6);
+  background-color: rgba(56, 139, 253, 1);
   border-color: #58a6ff;
 }
 
