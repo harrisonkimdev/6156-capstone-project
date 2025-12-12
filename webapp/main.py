@@ -740,6 +740,19 @@ async def save_to_training_pool(request: Request) -> dict[str, object]:
         
         shutil.copytree(workflow_dir, pool_video_dir, dirs_exist_ok=True)
         
+        # Save metadata (hold_color and route_difficulty) if provided
+        hold_color = data.get("hold_color")
+        route_difficulty = data.get("route_difficulty")
+        if hold_color or route_difficulty:
+            import json
+            metadata = {}
+            if hold_color:
+                metadata["hold_color"] = hold_color
+            if route_difficulty:
+                metadata["route_difficulty"] = route_difficulty
+            metadata_file = pool_video_dir / "metadata.json"
+            metadata_file.write_text(json.dumps(metadata, indent=2))
+        
         LOGGER.info(f"Saved video '{video_name}' to training pool: {pool_video_dir}")
         
         # Start background upload to GCS/Google Drive (non-blocking)
@@ -1079,6 +1092,8 @@ class SaveHoldLabelsRequest(BaseModel):
     upload_id: str = Field(..., description="Upload ID")
     video_name: str = Field(..., description="Video name")
     labels: list[dict] = Field(..., description="List of labeled segments")
+    hold_color: Optional[str] = Field(None, description="Hold color (optional)")
+    route_difficulty: Optional[str] = Field(None, description="Route difficulty (optional)")
 
 
 @app.post("/api/workflow/save-hold-labels", response_class=JSONResponse)
@@ -1113,6 +1128,16 @@ async def save_hold_labels(request: SaveHoldLabelsRequest) -> dict[str, object]:
             else:
                 negative_labels.append(label)
         
+        # Determine hold_color: use request.hold_color if provided, otherwise extract from labels
+        hold_color = request.hold_color
+        if not hold_color:
+            hold_colors = [label.get("hold_color") for label in positive_labels if label.get("hold_color")]
+            if hold_colors:
+                # Get most common color
+                from collections import Counter
+                color_counts = Counter(hold_colors)
+                hold_color = color_counts.most_common(1)[0][0] if color_counts else None
+        
         # Save labels to JSON
         labels_data = {
             "upload_id": request.upload_id,
@@ -1124,6 +1149,8 @@ async def save_hold_labels(request: SaveHoldLabelsRequest) -> dict[str, object]:
             "positive_count": len(positive_labels),
             "negative_count": len(negative_labels),
             "created_at": datetime.now().isoformat(),
+            "hold_color": hold_color,
+            "route_difficulty": request.route_difficulty,
         }
         
         labels_file = session_dir / "labels.json"
@@ -1177,12 +1204,23 @@ async def get_hold_detection_pool() -> dict[str, object]:
             if labels_file.exists():
                 import json
                 labels_data = json.loads(labels_file.read_text())
+                
+                # Get first frame image path if it exists
+                frame_image_path = session_dir / "frame.jpg"
+                frame_image_url = None
+                if frame_image_path.exists():
+                    rel_path = frame_image_path.relative_to(ROOT_DIR)
+                    frame_image_url = f"/repo/{rel_path.as_posix()}"
+                
                 sets.append({
                     "id": session_dir.name,
-                    "name": f"{labels_data.get('video_name', 'Unknown')} - {session_dir.name[:8]}",
+                    "name": labels_data.get('video_name', 'Unknown'),
                     "labeled_segments": labels_data.get("positive_count", 0),
                     "negative_segments": labels_data.get("negative_count", 0),
                     "created_at": labels_data.get("created_at", ""),
+                    "frame_image_url": frame_image_url,
+                    "hold_color": labels_data.get("hold_color"),
+                    "route_difficulty": labels_data.get("route_difficulty"),
                 })
                 total_labeled += labels_data.get("positive_count", 0)
         
@@ -1224,11 +1262,37 @@ async def get_key_frame_selection_pool() -> dict[str, object]:
                 frame_count = len(selected_frames)
                 total_frames += frame_count
                 
+                # Load metadata if exists
+                metadata_file = video_dir / "metadata.json"
+                hold_color = None
+                route_difficulty = None
+                if metadata_file.exists():
+                    import json
+                    try:
+                        metadata = json.loads(metadata_file.read_text())
+                        hold_color = metadata.get("hold_color")
+                        route_difficulty = metadata.get("route_difficulty")
+                    except Exception:
+                        pass
+                
+                # Get first frame image if exists
+                first_frame_path = None
+                if selected_frames:
+                    first_frame_path = sorted(selected_frames)[0]
+                
+                frame_image_url = None
+                if first_frame_path and first_frame_path.exists():
+                    rel_path = first_frame_path.relative_to(ROOT_DIR)
+                    frame_image_url = f"/repo/{rel_path.as_posix()}"
+                
                 videos.append({
                     "id": video_dir.name,
                     "name": video_dir.name,
                     "selected_frames": frame_count,
                     "created_at": datetime.fromtimestamp(video_dir.stat().st_mtime).isoformat() if video_dir.exists() else "",
+                    "hold_color": hold_color,
+                    "route_difficulty": route_difficulty,
+                    "frame_image_url": frame_image_url,
                 })
         
         return {

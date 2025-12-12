@@ -5,6 +5,39 @@
  */
 
 /**
+ * Get hold color label with emoji
+ */
+function getHoldColorLabel(color) {
+  const colorMap = {
+    'red': '🔴 Red',
+    'blue': '🔵 Blue',
+    'green': '🟢 Green',
+    'yellow': '🟡 Yellow',
+    'purple': '🟣 Purple',
+    'black': '⚫ Black',
+    'white': '⚪ White',
+  };
+  return colorMap[color] || color;
+}
+
+/**
+ * Get route difficulty label with emoji
+ */
+function getRouteDifficultyLabel(difficulty) {
+  const difficultyMap = {
+    'pink': '🟪 Pink (Easier)',
+    'black': '⬛ Black',
+    'yellow': '🟨 Yellow',
+    'orange': '🟧 Orange',
+    'white': '⬜ White',
+    'purple': '🟪 Purple',
+    'green': '🟩 Green',
+    'blue': '🟦 Blue (Harder)',
+  };
+  return difficultyMap[difficulty] || difficulty;
+}
+
+/**
  * Load training pool info
  */
 async function loadTrainingPoolInfo() {
@@ -101,14 +134,32 @@ async function loadHoldDetectionPool() {
     if (!listContainer) return;
 
     if (data.sets && data.sets.length > 0) {
-      listContainer.innerHTML = data.sets.map(set => `
-        <div style="padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
-          <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${set.name || set.id}</div>
-          <div style="color: #aaa; font-size: 12px;">
-            ${set.labeled_segments || 0} labeled segments | ${set.created_at || ''}
+      listContainer.innerHTML = data.sets.map(set => {
+        const holdColorLabel = set.hold_color ? getHoldColorLabel(set.hold_color) : null;
+        const routeDifficultyLabel = set.route_difficulty ? getRouteDifficultyLabel(set.route_difficulty) : null;
+
+        return `
+        <div style="display: flex; gap: 12px; padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
+          ${set.frame_image_url ? `
+            <img src="${set.frame_image_url}" 
+                 alt="First frame" 
+                 style="width: 120px; height: 90px; object-fit: cover; border-radius: 4px; flex-shrink: 0;" />
+          ` : ''}
+          <div style="flex: 1; min-width: 0;">
+            <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${set.name || set.id}</div>
+            <div style="color: #aaa; font-size: 12px; margin-bottom: 4px;">
+              ${set.labeled_segments || 0} labeled segments | ${set.created_at || ''}
+            </div>
+            ${holdColorLabel || routeDifficultyLabel ? `
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+                ${holdColorLabel ? `<span style="color: #aaa; font-size: 11px;">${holdColorLabel}</span>` : ''}
+                ${routeDifficultyLabel ? `<span style="color: #aaa; font-size: 11px;">${routeDifficultyLabel}</span>` : ''}
+              </div>
+            ` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } else {
       listContainer.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No labeled holds in pool yet.</p>';
     }
@@ -143,14 +194,32 @@ async function loadKeyFrameSelectionPool() {
     if (!listContainer) return;
 
     if (data.videos && data.videos.length > 0) {
-      listContainer.innerHTML = data.videos.map(video => `
-        <div style="padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
-          <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${video.name || video.id}</div>
-          <div style="color: #aaa; font-size: 12px;">
-            ${video.selected_frames || 0} selected frames | ${video.created_at || ''}
+      listContainer.innerHTML = data.videos.map(video => {
+        const holdColorLabel = video.hold_color ? getHoldColorLabel(video.hold_color) : null;
+        const routeDifficultyLabel = video.route_difficulty ? getRouteDifficultyLabel(video.route_difficulty) : null;
+
+        return `
+        <div style="display: flex; gap: 12px; padding: 10px; margin-bottom: 8px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #0066cc;">
+          ${video.frame_image_url ? `
+            <img src="${video.frame_image_url}" 
+                 alt="First frame" 
+                 style="width: 120px; height: 90px; object-fit: cover; border-radius: 4px; flex-shrink: 0;" />
+          ` : ''}
+          <div style="flex: 1; min-width: 0;">
+            <div style="color: #fff; font-weight: bold; margin-bottom: 5px;">${video.name || video.id}</div>
+            <div style="color: #aaa; font-size: 12px; margin-bottom: 4px;">
+              ${video.selected_frames || 0} selected frames | ${video.created_at || ''}
+            </div>
+            ${holdColorLabel || routeDifficultyLabel ? `
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+                ${holdColorLabel ? `<span style="color: #aaa; font-size: 11px;">${holdColorLabel}</span>` : ''}
+                ${routeDifficultyLabel ? `<span style="color: #aaa; font-size: 11px;">${routeDifficultyLabel}</span>` : ''}
+              </div>
+            ` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } else {
       listContainer.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No selected frames in pool yet.</p>';
     }
@@ -265,7 +334,7 @@ async function updatePoolHeaderCounts() {
       const framesData = await framesResponse.json();
       const frameCountBadge = document.getElementById('pool-header-frames-count');
       if (frameCountBadge) {
-        frameCountBadge.textContent = framesData.frame_count || 0;
+        frameCountBadge.textContent = framesData.video_count || 0;
       }
     }
   } catch (error) {

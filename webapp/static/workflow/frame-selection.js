@@ -435,12 +435,18 @@ async function saveToTrainingPool() {
   try {
     showStatus('step-3', 'Saving to training pool...', 'info');
 
+    // Get hold color and route difficulty from WorkflowState
+    const holdColor = WorkflowState.holdColor || '';
+    const routeDifficulty = WorkflowState.routeDifficulty || '';
+
     const response = await fetch('/api/workflow/save-to-training-pool', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         upload_id: frameState.uploadId,
         video_name: frameState.videoName,
+        hold_color: holdColor || undefined,
+        route_difficulty: routeDifficulty || undefined,
       }),
     });
 

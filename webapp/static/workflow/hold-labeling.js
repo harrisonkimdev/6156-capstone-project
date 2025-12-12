@@ -709,6 +709,10 @@ async function submitHoldLabels() {
       bbox: segment.bbox,
     }));
 
+    // Get hold color and route difficulty from WorkflowState
+    const holdColor = WorkflowState.holdColor || '';
+    const routeDifficulty = WorkflowState.routeDifficulty || '';
+
     const response = await fetch('/api/workflow/save-hold-labels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -716,6 +720,8 @@ async function submitHoldLabels() {
         upload_id: WorkflowState.getCurrentUploadId(),
         video_name: WorkflowState.getCurrentVideoName(),
         labels: labels,
+        hold_color: holdColor || undefined,
+        route_difficulty: routeDifficulty || undefined,
       }),
     });
 
