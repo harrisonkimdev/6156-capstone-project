@@ -18,12 +18,45 @@
    * Initialize widget
    */
   function initWidget() {
-    if (container) return;
+    // Check if container already exists in DOM (prevents duplicate containers if script loads twice)
+    const existingContainer = document.getElementById('feedback-widget-container');
+    if (existingContainer) {
+      container = existingContainer;
+      console.log('[Feedback Widget] Using existing container from DOM');
+      return;
+    }
+
+    // Check if container variable is already set
+    if (container) {
+      console.log('[Feedback Widget] Container already exists');
+      return;
+    }
+
+    if (!document.body) {
+      console.error('[Feedback Widget] document.body not available yet!');
+      return;
+    }
 
     container = document.createElement('div');
     container.id = 'feedback-widget-container';
     container.className = 'feedback-widget-container';
     document.body.appendChild(container);
+    console.log('[Feedback Widget] Container created and added to DOM:', container, 'Body:', document.body);
+
+    // Verify it's actually in the DOM
+    const verify = document.getElementById('feedback-widget-container');
+    if (verify) {
+      console.log('[Feedback Widget] Container verified in DOM. Computed styles:', {
+        display: window.getComputedStyle(verify).display,
+        position: window.getComputedStyle(verify).position,
+        bottom: window.getComputedStyle(verify).bottom,
+        right: window.getComputedStyle(verify).right,
+        zIndex: window.getComputedStyle(verify).zIndex,
+        visibility: window.getComputedStyle(verify).visibility
+      });
+    } else {
+      console.error('[Feedback Widget] Container NOT found in DOM after appendChild!');
+    }
   }
 
   /**
@@ -57,6 +90,12 @@
     // Initialize widget
     initWidget();
 
+    // Debug: Check if container exists
+    if (!container) {
+      console.error('[Feedback Widget] Container not initialized!');
+      return;
+    }
+
     // Validate type
     const validTypes = ['success', 'error', 'warning', 'info'];
     if (!validTypes.includes(type)) {
@@ -78,7 +117,6 @@
       item.classList.add('has-actions');
     }
 
-    const icon = getIcon(type);
     let actionsHtml = '';
     if (actions && actions.length > 0) {
       actionsHtml = `
@@ -92,10 +130,14 @@
       `;
     }
 
+    // Add timer element if duration > 0
+    const timerHtml = duration > 0 ? `<span class="feedback-timer">${Math.ceil(duration / 1000)}s</span>` : '';
+
     item.innerHTML = `
       <div class="feedback-content">
         <span class="feedback-icon">${icon}</span>
         <span class="feedback-message">${escapeHtml(message)}</span>
+        ${timerHtml}
       </div>
       ${actionsHtml}
       <button class="feedback-close" aria-label="Close">×</button>
@@ -123,18 +165,48 @@
 
     // Add to container
     container.appendChild(item);
+    console.log('[Feedback Widget] Item added to container:', item, 'Container:', container);
 
     // Small delay for animation
     requestAnimationFrame(() => {
       item.classList.add('show');
+      console.log('[Feedback Widget] Show class added to item. Computed styles:', {
+        display: window.getComputedStyle(item).display,
+        opacity: window.getComputedStyle(item).opacity,
+        transform: window.getComputedStyle(item).transform,
+        visibility: window.getComputedStyle(item).visibility,
+        zIndex: window.getComputedStyle(container).zIndex
+      });
     });
 
-    // Auto-remove
+    // Auto-remove with timer
     if (duration > 0) {
+      let remainingTime = Math.ceil(duration / 1000);
+      const timerElement = item.querySelector('.feedback-timer');
+
+      // Update timer every second
+      const intervalId = setInterval(() => {
+        remainingTime--;
+        if (timerElement) {
+          if (remainingTime > 0) {
+            timerElement.textContent = `${remainingTime}s`;
+          } else {
+            timerElement.textContent = '0s';
+          }
+        }
+
+        if (remainingTime <= 0) {
+          clearInterval(intervalId);
+        }
+      }, 1000);
+
       const timeoutId = setTimeout(() => {
+        clearInterval(intervalId);
         removeMessage(item);
       }, duration);
+
       item.dataset.timeoutId = timeoutId;
+      item.dataset.intervalId = intervalId;
     }
 
     // Queue management - remove oldest message if max exceeded
@@ -155,9 +227,12 @@
   function removeMessage(item) {
     if (!item || !item.parentNode) return;
 
-    // Clear timeout
+    // Clear timeout and interval
     if (item.dataset.timeoutId) {
       clearTimeout(parseInt(item.dataset.timeoutId));
+    }
+    if (item.dataset.intervalId) {
+      clearInterval(parseInt(item.dataset.intervalId));
     }
 
     // Remove after animation
@@ -199,10 +274,16 @@
   window.showFeedback = showFeedback;
   window.clearFeedback = clearAll;
 
-  // Initialize on DOMContentLoaded
+  // Initialize widget immediately if DOM is ready, otherwise wait for DOMContentLoaded
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initWidget);
+    document.addEventListener('DOMContentLoaded', () => {
+      initWidget();
+      console.log('[Feedback Widget] Initialized on DOMContentLoaded');
+    });
   } else {
     initWidget();
+    console.log('[Feedback Widget] Initialized immediately');
   }
+
+  console.log('[Feedback Widget] Script loaded, showFeedback available:', typeof window.showFeedback === 'function');
 })();

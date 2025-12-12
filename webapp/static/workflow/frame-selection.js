@@ -456,8 +456,6 @@ async function saveToTrainingPool() {
 
     const data = await response.json();
 
-    showStatus('step-3', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
-
     // Mark step-3 as completed
     setStepCompleted('step-3');
     WorkflowState.frameSelectionSavedToPool = true;
@@ -465,7 +463,7 @@ async function saveToTrainingPool() {
       updateDashboardStatus();
     }
 
-    // Show feedback with action buttons
+    // Show feedback with action buttons (includes status message)
     if (window.showFeedback) {
       window.showFeedback(
         `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`,
@@ -476,6 +474,9 @@ async function saveToTrainingPool() {
           { label: 'Train Models', callback: () => navigateToStep('step-4'), style: 'primary' }
         ]
       );
+    } else {
+      // Fallback to showStatus if feedback widget not available
+      showStatus('step-3', `Saved to training pool! Total: ${data.total_videos} videos, ${data.total_frames} frames`, 'success');
     }
 
     // Update pool info display
@@ -486,9 +487,6 @@ async function saveToTrainingPool() {
   } catch (error) {
     console.error('Failed to save to pool:', error);
     showStatus('step-3', `Save failed: ${error.message}`, 'error');
-    if (window.showFeedback) {
-      window.showFeedback(`Save failed: ${error.message}`, 'error');
-    }
   }
 }
 
@@ -532,15 +530,9 @@ async function trainFrameSelector() {
     if (data.note) {
       // Training pipeline not yet implemented
       showStatus('step-3', `${data.message} (${data.note})`, 'info');
-      if (window.showFeedback) {
-        window.showFeedback(`${data.message}. Note: ${data.note}`, 'info');
-      }
     } else {
-      showStatus('step-3', `Training complete!`, 'success');
       const f1Score = (data.results?.metrics?.f1 * 100 || 0).toFixed(1);
-      if (window.showFeedback) {
-        window.showFeedback(`Training complete! Test F1 Score: ${f1Score}%`, 'success');
-      }
+      showStatus('step-3', `Training complete! Test F1 Score: ${f1Score}%`, 'success');
     }
 
   } catch (error) {

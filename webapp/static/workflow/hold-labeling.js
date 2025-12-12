@@ -177,35 +177,28 @@ function showHoldLabelingUI(uploadId, videoName, frameCount, trimInfo = null) {
     WorkflowState.setRouteDifficulty(routeDifficultySelect.value);
   }
 
-  // Check if video was trimmed and both frame paths are available
-  if (trimInfo && trimInfo.hasTrimmed &&
-    trimInfo.originalFirstFramePath && trimInfo.trimmedFirstFramePath) {
-    // Show frame selection modal - let user choose which frame to use
-    showFrameSelectionModal(uploadId, videoName, trimInfo);
-  } else {
-    // No trim or no trimmed frame available - show hold labeling UI directly
-    const holdLabelingUI = document.getElementById('hold-labeling-ui');
-    if (holdLabelingUI) {
-      holdLabelingUI.style.display = 'block';
-    }
-
-    // Initialize canvas
-    const canvas = document.getElementById('hold-labeling-canvas');
-    if (canvas) {
-      WorkflowState.holdLabelingCanvas = canvas;
-      WorkflowState.holdLabelingCtx = canvas.getContext('2d');
-
-      // Add click event listener for bounding box selection
-      canvas.addEventListener('click', handleCanvasClick);
-
-      // Add keyboard event listener for Backspace to remove selected segments
-      canvas.setAttribute('tabindex', '0'); // Make canvas focusable
-      canvas.addEventListener('keydown', handleCanvasKeyDown);
-    }
-
-    // Load first frame for labeling and automatically start SAM segmentation
-    loadFirstFrameForLabeling(uploadId, videoName);
+  // Frame selection modal disabled temporarily - always use first frame
+  const holdLabelingUI = document.getElementById('hold-labeling-ui');
+  if (holdLabelingUI) {
+    holdLabelingUI.style.display = 'block';
   }
+
+  // Initialize canvas
+  const canvas = document.getElementById('hold-labeling-canvas');
+  if (canvas) {
+    WorkflowState.holdLabelingCanvas = canvas;
+    WorkflowState.holdLabelingCtx = canvas.getContext('2d');
+
+    // Add click event listener for bounding box selection
+    canvas.addEventListener('click', handleCanvasClick);
+
+    // Add keyboard event listener for Backspace to remove selected segments
+    canvas.setAttribute('tabindex', '0'); // Make canvas focusable
+    canvas.addEventListener('keydown', handleCanvasKeyDown);
+  }
+
+  // Load first frame for labeling and automatically start SAM segmentation
+  loadFirstFrameForLabeling(uploadId, videoName);
 }
 
 /**
@@ -356,7 +349,9 @@ async function startSamSegmentation(uploadId, videoName, frameFilename) {
             btnSubmitHolds.style.display = 'block';
           }
 
-          showStatus('step-2', `Found ${WorkflowState.holdLabelingSegments.length} segments`, 'success');
+          // Use server message if available, otherwise use our own
+          const message = data.message || `Found ${WorkflowState.holdLabelingSegments.length} segments`;
+          showStatus('step-2', message, 'success');
           if (typeof updateDashboardStatus === 'function') {
             updateDashboardStatus();
           }
@@ -417,6 +412,12 @@ function updateSamProgress(data) {
     } else {
       progressMessage.style.color = '#aaa';
     }
+  }
+
+  // Show feedback widget for important stages (but not complete - that's handled separately)
+  if (data.message && data.stage && data.stage !== 'complete' && typeof window.showFeedback === 'function') {
+    const type = data.stage === 'error' ? 'error' : 'info';
+    window.showFeedback(data.message, type);
   }
 }
 

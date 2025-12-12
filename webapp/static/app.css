@@ -1895,6 +1895,17 @@ input[type="file"] {
   min-width: 0;
 }
 
+.feedback-timer {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 8px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
 .feedback-close {
   background: none;
   border: none;
@@ -1918,7 +1929,7 @@ input[type="file"] {
 
 /* Type-specific styles */
 .feedback-item.success {
-  background-color: rgba(46, 160, 67, 1);
+  background-color: rgba(46, 160, 67, 1) !important;
   border-color: #4ec970;
 }
 
@@ -1927,7 +1938,7 @@ input[type="file"] {
 }
 
 .feedback-item.error {
-  background-color: rgba(218, 54, 51, 1);
+  background-color: rgba(218, 54, 51, 1) !important;
   border-color: #f85149;
 }
 
@@ -1936,7 +1947,7 @@ input[type="file"] {
 }
 
 .feedback-item.warning {
-  background-color: rgba(255, 149, 0, 1);
+  background-color: rgba(255, 149, 0, 1) !important;
   border-color: #ff9500;
 }
 
@@ -1945,7 +1956,7 @@ input[type="file"] {
 }
 
 .feedback-item.info {
-  background-color: rgba(56, 139, 253, 1);
+  background-color: rgba(56, 139, 253, 1) !important;
   border-color: #58a6ff;
 }
 
