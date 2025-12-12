@@ -67,10 +67,10 @@ function handleVideoFileSelection(event) {
     videoPreview.src = fileUrl;
     videoPreview.load();
 
-    // Setup trim controls when metadata is loaded
-    videoPreview.onloadedmetadata = () => {
-      setupVideoTrimControls(videoPreview);
-    };
+    // Trim controls disabled temporarily
+    // videoPreview.onloadedmetadata = () => {
+    //   setupVideoTrimControls(videoPreview);
+    // };
   }
 
   // Store video URL for cleanup

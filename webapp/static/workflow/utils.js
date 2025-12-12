@@ -12,8 +12,11 @@
  */
 function showStatus(stepId, message, type) {
   // Only use feedback widget for all status messages
-  if (window.showFeedback) {
+  if (typeof window.showFeedback === 'function') {
     window.showFeedback(message, type);
+  } else {
+    // Fallback: log to console if feedback widget not available
+    console.log(`[${type.toUpperCase()}] ${message}`);
   }
 }
 

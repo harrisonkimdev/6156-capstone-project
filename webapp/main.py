@@ -1456,14 +1456,57 @@ async def upload_features(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 class TrainRequest(BaseModel):
+    """Training request supporting both XGBoost and BiLSTM models."""
+
     features_path: str
-    task: str = Field("classification", description="classification or regression")
-    label_column: str = Field("detection_score")
-    label_threshold: float | None = 0.6
-    test_size: float = 0.2
-    random_state: int = 42
-    model_out: str = "models/xgb_pose.json"
-    upload_to_gcs: bool = Field(False, description="Upload trained model to GCS (default: False)")
+    model_type: str = Field("xgboost", description="Model type: 'xgboost' or 'bilstm'")
+
+    # === XGBoost Hyperparameters ===
+    # These are used when model_type='xgboost'
+    n_estimators: int = Field(300, description="Number of boosting rounds")
+    learning_rate: float = Field(0.05, description="Learning rate (eta)")
+    max_depth: int = Field(4, description="Maximum tree depth")
+    subsample: float = Field(0.8, description="Subsample ratio of training instances")
+    colsample_bytree: float = Field(0.8, description="Subsample ratio of columns")
+    scale_pos_weight: float | None = Field(None, description="Balancing of positive and negative weights")
+    n_jobs: int = Field(0, description="Number of parallel threads (0=all)")
+    tree_method: str | None = Field(None, description="Tree construction algorithm (hist, gpu_hist, exact)")
+    early_stopping_rounds: int | None = Field(30, description="Early stopping rounds")
+    eval_metric: str = Field("logloss", description="Evaluation metric")
+    test_size: float = Field(0.2, description="Test set proportion")
+    random_state: int = Field(42, description="Random seed")
+    model_out: str = Field("models/xgb_pose.json", description="XGBoost model output path")
+
+    # Legacy fields for backward compatibility
+    task: str = Field("classification", description="Task type (classification/regression)")
+    label_column: str = Field("detection_score", description="Label column name")
+    label_threshold: float | None = Field(0.6, description="Threshold for binary classification")
+
+    # === BiLSTM Model Architecture ===
+    # These are used when model_type='bilstm'
+    hidden_dim: int = Field(128, description="LSTM hidden dimension")
+    num_layers: int = Field(2, description="Number of LSTM layers")
+    dropout: float = Field(0.3, description="Dropout rate")
+    use_attention: bool = Field(True, description="Use attention pooling")
+
+    # === BiLSTM Training Hyperparameters ===
+    epochs: int = Field(100, description="Number of training epochs")
+    batch_size: int = Field(32, description="Batch size")
+    weight_decay: float = Field(0.0001, description="Weight decay (L2 regularization)")
+    patience: int = Field(10, description="Early stopping patience")
+    lr_patience: int = Field(5, description="Learning rate scheduler patience")
+    lr_factor: float = Field(0.5, description="Learning rate reduction factor")
+    device: str = Field("cuda", description="Device to use (cuda/cpu)")
+
+    # === BiLSTM Data Processing ===
+    window_size: int = Field(32, description="Sliding window size")
+    stride: int = Field(1, description="Sliding window stride")
+    train_split: float = Field(0.7, description="Training data proportion")
+    val_split: float = Field(0.2, description="Validation data proportion")
+    checkpoint_dir: str = Field("models/checkpoints", description="BiLSTM checkpoint directory")
+
+    # === Common Options ===
+    upload_to_gcs: bool = Field(False, description="Upload trained model to cloud storage")
 
 
 @app.post("/api/train", response_class=JSONResponse)
@@ -1502,7 +1545,22 @@ async def clear_job(job_id: str) -> dict[str, object]:
 
 
 @app.get("/api/jobs/{job_id}/analysis")
-async def job_analysis(job_id: str) -> dict[str, object]:
+async def job_analysis(
+    job_id: str,
+    frame_index: Optional[int] = None,
+    climber_height: Optional[float] = None,
+    climber_wingspan: Optional[float] = None,
+    climber_flexibility: Optional[float] = None,
+) -> dict[str, object]:
+    """Get analysis results for a job.
+    
+    Args:
+        job_id: Job identifier
+        frame_index: Optional specific frame index for recommendations
+        climber_height: Climber height in cm (for personalized recommendations)
+        climber_wingspan: Climber wingspan in cm (for personalized recommendations)
+        climber_flexibility: Flexibility score 0-1 (for personalized recommendations)
+    """
     job = job_manager.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1519,14 +1577,127 @@ async def job_analysis(job_id: str) -> dict[str, object]:
     holds_payload: dict[str, dict] = {}
     if holds_path.exists():
         holds_payload = json.loads(holds_path.read_text(encoding="utf-8"))
+    
+    # Use specified frame index or last frame
+    target_frame_idx = frame_index if frame_index is not None else len(feature_rows) - 1
+    if target_frame_idx < 0 or target_frame_idx >= len(feature_rows):
+        target_frame_idx = len(feature_rows) - 1
+    
+    target_row = feature_rows[target_frame_idx] if feature_rows else {}
+    
+    # Add climber characteristics to the row for personalized recommendations
+    if climber_height is not None:
+        target_row["climber_height"] = climber_height
+    if climber_wingspan is not None:
+        target_row["climber_wingspan"] = climber_wingspan
+    if climber_flexibility is not None:
+        target_row["climber_flexibility"] = climber_flexibility
+    
     next_holds = []
     if feature_rows and holds_payload:
-        next_holds = suggest_next_actions(feature_rows[-1], list(holds_payload.values()), top_k=3)
+        next_holds = suggest_next_actions(target_row, list(holds_payload.values()), top_k=5)
+    
     return {
         "job_id": job.id,
+        "frame_index": target_frame_idx,
+        "total_frames": len(feature_rows),
         "next_holds": next_holds,
         "holds_count": len(holds_payload),
-        "wall_angle": feature_rows[-1].get("wall_angle") if feature_rows else None,
+        "wall_angle": target_row.get("wall_angle") if target_row else None,
+        "climber_profile": {
+            "height": climber_height,
+            "wingspan": climber_wingspan,
+            "flexibility": climber_flexibility,
+        },
+    }
+
+
+@app.get("/api/jobs/{job_id}/frame-recommendations")
+async def get_frame_recommendations(
+    job_id: str,
+    frame_index: int,
+    climber_height: Optional[float] = None,
+    climber_wingspan: Optional[float] = None,
+    climber_flexibility: Optional[float] = None,
+    top_k: int = 5,
+) -> dict[str, object]:
+    """Get next hold recommendations for a specific frame.
+    
+    This endpoint is designed for real-time recommendations during video playback.
+    
+    Args:
+        job_id: Job identifier
+        frame_index: The frame index to get recommendations for
+        climber_height: Climber height in cm (for personalized recommendations)
+        climber_wingspan: Climber wingspan in cm (for personalized recommendations)
+        climber_flexibility: Flexibility score 0-1 (for personalized recommendations)
+        top_k: Number of top recommendations to return
+    
+    Returns:
+        Recommendations including next hold candidates and current pose info
+    """
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.manifests:
+        raise HTTPException(status_code=400, detail="Job has no manifests yet")
+    
+    frame_dir = Path(job.manifests[0]).parent
+    features_path = frame_dir / "pose_features.json"
+    if not features_path.exists():
+        raise HTTPException(status_code=400, detail="Features not found for job")
+    
+    import json
+    feature_rows = json.loads(features_path.read_text(encoding="utf-8"))
+    
+    if frame_index < 0 or frame_index >= len(feature_rows):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Frame index {frame_index} out of range (0-{len(feature_rows)-1})"
+        )
+    
+    holds_path = frame_dir / "holds.json"
+    holds_payload: dict[str, dict] = {}
+    if holds_path.exists():
+        holds_payload = json.loads(holds_path.read_text(encoding="utf-8"))
+    
+    target_row = feature_rows[frame_index].copy()
+    
+    # Add climber characteristics for personalized recommendations
+    if climber_height is not None:
+        target_row["climber_height"] = climber_height
+    if climber_wingspan is not None:
+        target_row["climber_wingspan"] = climber_wingspan
+    if climber_flexibility is not None:
+        target_row["climber_flexibility"] = climber_flexibility
+    
+    # Get recommendations
+    next_holds = []
+    if holds_payload:
+        next_holds = suggest_next_actions(target_row, list(holds_payload.values()), top_k=top_k)
+    
+    # Extract current pose info
+    current_contacts = {}
+    for limb in ("left_hand", "right_hand", "left_foot", "right_foot"):
+        contact_on = target_row.get(f"{limb}_contact_on", False)
+        contact_hold = target_row.get(f"{limb}_contact_hold")
+        current_contacts[limb] = {
+            "active": contact_on,
+            "hold_id": contact_hold,
+        }
+    
+    return {
+        "job_id": job.id,
+        "frame_index": frame_index,
+        "total_frames": len(feature_rows),
+        "timestamp_seconds": target_row.get("timestamp_seconds"),
+        "recommendations": next_holds,
+        "current_contacts": current_contacts,
+        "com": {
+            "x": target_row.get("com_x"),
+            "y": target_row.get("com_y"),
+        },
+        "wall_angle": target_row.get("wall_angle"),
     }
 @app.get("/api/jobs/{job_id}/ml_predictions")
 def get_ml_predictions(job_id: str):
