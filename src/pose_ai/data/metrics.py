@@ -49,10 +49,24 @@ def load_manifest(path: Path | str) -> ManifestData:
         )
         for item in payload.get("frames", [])
     ]
+    # Calculate interval_seconds if not present (for backward compatibility)
+    if "interval_seconds" in payload:
+        interval_seconds = float(payload["interval_seconds"])
+    else:
+        # Estimate from frames if available
+        if entries and len(entries) > 1:
+            fps = float(payload.get("fps", 30.0))
+            if fps > 0:
+                interval_seconds = (entries[-1].timestamp_seconds - entries[0].timestamp_seconds) / max(1, len(entries) - 1)
+            else:
+                interval_seconds = 1.0
+        else:
+            interval_seconds = 1.0
+    
     return ManifestData(
         video=Path(payload["video"]),
         fps=float(payload["fps"]),
-        interval_seconds=float(payload["interval_seconds"]),
+        interval_seconds=interval_seconds,
         total_frames=int(payload["total_frames"]),
         saved_frames=int(payload["saved_frames"]),
         frame_entries=entries,

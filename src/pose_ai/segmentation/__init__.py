@@ -6,7 +6,6 @@ from .rule_based import (
     features_to_frame_metrics,
     segment_by_activity,
 )
-from .hsv_segmentation import HsvSegmentationModel
 from .yolo_segmentation import (
     HoldColorInfo,
     RouteGroup,
@@ -29,7 +28,6 @@ __all__ = [
     "HoldColorInfo",
     "RouteGroup",
     "YoloSegmentationModel",
-    "HsvSegmentationModel",
     "extract_hold_colors",
     "cluster_holds_by_color",
     "export_segmentation_masks",

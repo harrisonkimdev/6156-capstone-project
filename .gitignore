@@ -144,6 +144,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# Google Cloud Service Account keys
+*-key.json
+*service-account*.json
+*credentials*.json
+gcs-key.json
+betamove*.json
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -214,7 +221,7 @@ data/
 !src/pose_ai/data/
 BetaMove/rawImages/
 models/
-docs/_build/
+docs/
 
 # Model weights
 *.pt

@@ -13,7 +13,7 @@ Climbing video analysis system with pose estimation, hold detection, efficiency 
 ## Features
 
 - **Video Processing**: Extract frames using interval-based, motion-based, or motion+pose similarity methods
-- **Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions (YOLO or HSV color-based methods)
+- **YOLO Segmentation**: Pixel-level segmentation to separate wall, holds, and climber regions
 - **Color-Based Route Grouping**: Automatically group holds by color to identify climbing routes/problems
 - **Pose Estimation**: MediaPipe 33-landmark detection with confidence filtering
 - **Hold Detection**: YOLOv8n/m object detection with DBSCAN spatial clustering and temporal tracking
@@ -25,7 +25,7 @@ Climbing video analysis system with pose estimation, hold detection, efficiency 
 - **ML Models**: BiLSTM and Transformer multitask models for efficiency and next-action prediction
 - **Route Difficulty Estimation**: XGBoost model for V0-V10 grade prediction
 - **Web UI**: FastAPI with background job management, real-time status updates, and grading UI
-- **Cloud Storage**: Optional GCS integration for videos, frames, and models
+- **Cloud Storage**: Required GCS integration for videos, frames, and models
 
 ---
 
@@ -45,6 +45,8 @@ Update an existing environment:
 ```bash
 conda env update -f environment.yml --prune
 ```
+
+**Tip:** Run `make init` to create or update the Conda environment from `environment.yml` and register the `6156 (py3.10)` Jupyter kernel. The repository never stores a `.venv`; always recreate the environment locally when you clone or move the project.
 
 **Alternative** (if `environment.yml` is not available):
 
@@ -107,17 +109,7 @@ conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py d
 
 ```bash
 conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py data/videos --output data/frames \
-  --segmentation --seg-method yolo --seg-model yolov8n-seg.pt
-```
-
-**With HSV segmentation**:
-
-```bash
-conda run -n 6156-capstone env PYTHONPATH=src python scripts/extract_frames.py data/videos --output data/frames \
-  --segmentation --seg-method hsv \
-  --hsv-hue-tolerance 5 \
-  --hsv-sat-tolerance 50 \
-  --hsv-val-tolerance 40
+  --segmentation --seg-model yolov8n-seg.pt
 ```
 
 #### 2. Pose Estimation
@@ -283,72 +275,52 @@ file: <video_file>
 
 #### Create Pipeline Job
 
+**Production API** - Simplified for external users. Only `video_dir` and optional `metadata` are required. All other options (output directory, segmentation, YOLO model, frame extraction) are automatically handled using production defaults.
+
 ```http
 POST /api/jobs
 Content-Type: application/json
 
 {
-  "video_dir": "data/videos",
-  "output_dir": "data/frames",
-  "interval": 1.5,
+  "video_dir": "data/uploads/IMG_3708_251211_105719AM",
   "metadata": {
     "route_name": "V5 Problem",
-    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
-    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "gym_location": "Climbing Gym",
     "climber_height": 175.0,
     "climber_wingspan": 180.0,
-    "climber_flexibility": 0.7
-  },
-  "yolo": {
-    "enabled": true,
-    "model_name": "yolov8n.pt",
-    "min_confidence": 0.35
-  },
-  "frame_extraction": {
-    "method": "motion_pose",
-    "motion_threshold": 5.0,
-    "similarity_threshold": 0.8,
-    "min_frame_interval": 5,
-    "use_optical_flow": true,
-    "use_pose_similarity": true,
-    "initial_sampling_rate": 0.1
-  },
-  "segmentation": {
-    "enabled": true,
-    "method": "yolo",
-    "model_name": "yolov8n-seg.pt",
-    "export_masks": true,
-    "group_by_color": true,
-    "hue_tolerance": 10,
-    "sat_tolerance": 50,
-    "val_tolerance": 50
+    "climber_flexibility": 0.7,
+    "imu_quaternion": [0.7071, 0.0, 0.7071, 0.0],
+    "imu_euler_angles": [85.5, 2.0, 0.0],
+    "camera_orientation": "portrait",
+    "notes": "First attempt",
+    "tags": ["overhang", "crimps"]
   }
 }
 ```
 
-**Frame Extraction Options**:
+**Request Fields**:
 
-- `method`: `"interval"` (time-based), `"motion"` (motion-based), or `"motion_pose"` (motion + pose similarity)
-- `motion_threshold`: Minimum motion score (default: 5.0)
-- `similarity_threshold`: Maximum pose similarity for `motion_pose` method (default: 0.8)
-- `min_frame_interval`: Minimum frames between selections (default: 5)
-- `use_optical_flow`: Enable optical flow for motion detection (default: true)
-- `use_pose_similarity`: Enable pose similarity filtering (default: true, only for `motion_pose`)
-- `initial_sampling_rate`: Initial frame sampling rate in seconds (default: 0.1)
+- `video_dir` (required): Directory containing source videos (typically from `/api/upload`)
+- `metadata` (optional): Capture metadata including:
+  - `route_name`: Route or boulder name
+  - `gym_location`: Venue or wall identifier
+  - `climber_height`: Height in cm (0-250)
+  - `climber_wingspan`: Wingspan in cm (0-300)
+  - `climber_flexibility`: Flexibility score 0-1
+  - `imu_quaternion`: Device orientation as quaternion [w, x, y, z]
+  - `imu_euler_angles`: Device orientation as Euler angles [pitch, roll, yaw] in degrees
+  - `imu_timestamp`: IMU reading timestamp (unix milliseconds)
+  - `camera_orientation`: "portrait", "landscape", or "other"
+  - `notes`: Freeform notes
+  - `tags`: List of search tags
 
-**Segmentation Options**:
+**Production Defaults** (automatically applied):
 
-- `enabled`: Enable YOLO segmentation (default: false)
-- `method`: Segmentation method: `"yolo"`, `"hsv"`, or `"none"` (default: "yolo")
-- `model_name`: YOLO segmentation model name (default: "yolov8n-seg.pt")
-- `export_masks`: Export segmentation masks as images (default: true)
-- `group_by_color`: Group holds by color to identify routes (default: true)
-- `hue_tolerance`: Hue tolerance for color clustering (default: 10)
-- `sat_tolerance`: Saturation tolerance for color clustering (default: 50)
-- `val_tolerance`: Value tolerance for color clustering (default: 50)
-- `hsv_hue_tolerance`: HSV method: Hue tolerance for hold detection (default: 5)
-- `hsv_sat_tolerance`: HSV method: Saturation tolerance for hold detection (default: 50)
-- `hsv_val_tolerance`: HSV method: Value tolerance for hold detection (default: 40)
+- **Output Directory**: Same as `video_dir` (all artifacts stored in the same directory, workflow style)
+- **Segmentation**: Always enabled (YOLO segmentation with default settings)
+- **YOLO Model**: Production model from `PRODUCTION_YOLO_MODEL` environment variable
+- **Frame Extraction**: All frames extracted, then BiLSTM model selects key frames (from `PRODUCTION_FRAME_SELECTOR_MODEL`)
+- **GCS Upload**: Handled automatically via `.env` configuration
 
 #### Other Endpoints
 
@@ -362,29 +334,84 @@ Content-Type: application/json
 
 ---
 
-## Cloud Storage (Optional)
+## Cloud Storage (Required)
 
-Mirror videos, frames, and models to Google Cloud Storage.
+All pipeline artifacts (videos, frames, and models) are automatically uploaded to Google Cloud Storage. GCS configuration is **required** for the application to run.
 
 ### Setup
 
-1. Set environment variables:
+1. **Create a `.env` file** (recommended for local development):
+
+   Create a `.env` file in the project root with the following variables:
+
+   ```bash
+   # Required: GCP Project ID
+   GCS_PROJECT=your-gcp-project-id
+   # Alternative: GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+
+   # Required: GCS Bucket Names
+   GCS_VIDEO_BUCKET=your-video-bucket-name
+   GCS_FRAME_BUCKET=your-frame-bucket-name
+   GCS_MODEL_BUCKET=your-model-bucket-name
+
+   # Optional: Custom Prefixes (defaults shown)
+   # GCS_VIDEO_PREFIX=videos/raw
+   # GCS_FRAME_PREFIX=videos/frames
+   # GCS_MODEL_PREFIX=models
+
+   # Required: Authentication
+   # Option 1: Service Account JSON file path
+   # Recommended: Store the JSON file in the project root directory
+   GOOGLE_APPLICATION_CREDENTIALS=./gcs-key.json
+   # Or use absolute path:
+   # GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+
+   # Option 2: Use gcloud auth application-default login instead
+   # (then you don't need GOOGLE_APPLICATION_CREDENTIALS)
+   ```
+
+   **Note:**
+
+   - The `.env` file is already in `.gitignore` and will not be committed to version control.
+   - Service account JSON key files (e.g., `*-key.json`, `*service-account*.json`, `gcs-key.json`) are also in `.gitignore` for security.
+   - You can safely store the JSON key file in the project root directory.
+
+   **Alternative:** You can also set environment variables directly in your shell:
 
    ```bash
    export GCS_PROJECT=<gcp-project-id>
    export GCS_VIDEO_BUCKET=<raw-video-bucket>
    export GCS_FRAME_BUCKET=<frame-bucket>
    export GCS_MODEL_BUCKET=<model-bucket>
-   # Optional prefixes
-   export GCS_VIDEO_PREFIX=videos/raw
-   export GCS_FRAME_PREFIX=videos/frames
-   export GCS_MODEL_PREFIX=models
+   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
    ```
 
-2. Install SDK:
+2. **Create Service Account and download JSON key:**
+
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → IAM & Admin → Service Accounts
+   - Create a new service account with **Storage Object Admin** role (or **Storage Admin** for full access)
+   - Create a JSON key and download it
+   - Save the JSON file in the project root directory (e.g., `gcs-key.json` or `betamove-gcs-key.json`)
+   - Update `.env` file with the path: `GOOGLE_APPLICATION_CREDENTIALS=./gcs-key.json`
+
+   **Security Note:** The JSON key file is automatically ignored by Git (see `.gitignore`). Never commit it to version control.
+
+3. **Configure authentication** (choose one):
+
+   - **Service account JSON file:** Set `GOOGLE_APPLICATION_CREDENTIALS` in `.env` (recommended: use relative path like `./gcs-key.json`)
+   - **Google Cloud SDK default credentials:**
+     ```bash
+     gcloud auth application-default login
+     ```
+
+4. **Install dependencies:**
    ```bash
-   conda run -n 6156-capstone pip install google-cloud-storage
+   conda run -n 6156-capstone pip install google-cloud-storage python-dotenv
    ```
+
+### Error Handling
+
+If any required environment variables are missing, the application will raise a `ValueError` at startup with details about which variables need to be set. GCS upload failures will cause the entire operation to fail.
 
 ### Retention Script
 
@@ -396,6 +423,91 @@ conda run -n 6156-capstone env PYTHONPATH=src python scripts/prune_gcs_artifacts
 ```
 
 Options: `--kind frames|models`, `--bucket`, `--prefix`
+
+---
+
+## Google Drive Integration (Optional)
+
+Google Drive can be used as an alternative or additional storage backend, especially useful for training models on Google Colab.
+
+### Setup
+
+1. **Enable Google Drive API:**
+
+   - Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Library
+   - Search for "Google Drive API" and enable it
+
+2. **Create Service Account (for local automation):**
+
+   - Go to IAM & Admin → Service Accounts
+   - Create a new service account
+   - Grant "Editor" role
+   - Create JSON key and download it
+   - Save as `drive-service-account.json` in the project root
+
+3. **Add to `.env` file:**
+
+   ```bash
+   # Google Drive (optional)
+   GOOGLE_DRIVE_ENABLED=true
+   GOOGLE_DRIVE_ROOT_FOLDER_ID=your-folder-id
+   GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH=./drive-service-account.json
+
+   # Storage backend selection (gcs, drive, both)
+   STORAGE_BACKEND=both
+   ```
+
+4. **Find your Google Drive Folder ID:**
+
+   - Open the folder in Google Drive
+   - The folder ID is in the URL after `folders/`
+   - Example: `https://drive.google.com/drive/folders/1a2b3c4d5e` → ID: `1a2b3c4d5e`
+
+### Storage Backend Options
+
+| Backend | Description                                              |
+| ------- | -------------------------------------------------------- |
+| `gcs`   | Use only Google Cloud Storage (default)                  |
+| `drive` | Use only Google Drive                                    |
+| `both`  | Use both GCS and Google Drive (redundant storage)        |
+
+---
+
+## Training on Google Colab
+
+For training models using Google Colab's GPU resources:
+
+1. **Open the Colab notebook:**
+
+   - Navigate to `notebooks/train_on_colab.ipynb`
+   - Open in Google Colab
+
+2. **Prepare training data:**
+
+   Upload your training data to Google Drive with this structure:
+   ```
+   MyDrive/BetaMove/
+   ├── training_data/
+   │   ├── hold_detection/      # YOLO dataset
+   │   │   ├── dataset.yaml
+   │   │   ├── images/
+   │   │   └── labels/
+   │   └── pose_features/       # XGBoost features
+   │       └── features.json
+   └── models/                  # Trained models (output)
+   ```
+
+3. **Run training:**
+
+   - Enable GPU runtime: Runtime → Change runtime type → GPU
+   - Execute the notebook cells sequentially
+   - Models are saved to Google Drive automatically
+
+4. **Use trained models:**
+
+   - Download models from `MyDrive/BetaMove/models/`
+   - Place in the project's `models/` directory
+   - Or configure the application to load from Drive
 
 ---
 
@@ -442,12 +554,10 @@ Options: `--kind frames|models`, `--bucket`, `--prefix`
 │  └────────────────┬────────────────────────────────┘   │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │ 2. Segmentation (segmentation/                  │  │
-│  │    yolo_segmentation.py or hsv_segmentation.py) │  │
-│  │    - OPTIONAL                                    │  │
-│  │    - YOLO: Wall, holds, climber pixel-level     │  │
-│  │      masks with color-based route grouping       │  │
-│  │    - HSV: Color-based hold detection             │  │
+│  │ 2. YOLO Segmentation (segmentation/             │  │
+│  │    yolo_segmentation.py) - OPTIONAL              │  │
+│  │    - Wall, holds, climber pixel-level masks     │  │
+│  │    - Color-based route grouping                 │  │
 │  └────────────────┬─────────────────────────────────┘  │
 │                   ▼                                      │
 │  ┌──────────────────────────────────────────────────┐  │
@@ -526,11 +636,7 @@ Combines motion detection with pose similarity to select diverse frames. Best fo
 6. Select frames where pose similarity < threshold (significant pose change)
 7. Apply minimum interval constraint
 
-### Segmentation
-
-Two methods are available for pixel-level segmentation:
-
-#### YOLO Segmentation
+### YOLO Segmentation
 
 Uses YOLO segmentation model to separate wall, holds, and climber regions at pixel level.
 
@@ -539,35 +645,12 @@ Uses YOLO segmentation model to separate wall, holds, and climber regions at pix
 - Pixel-level masks for each class (wall, holds, climber)
 - Color-based route grouping (same color = same route/problem)
 - Automatic hold color extraction and clustering
-- Requires pre-trained YOLO model
 
 **Output**:
 
 - `masks/`: Binary mask images for each class
 - `segmentation_results.json`: Metadata with mask paths
 - `routes.json`: Color-based route groupings
-
-#### HSV Segmentation
-
-Uses HSV color masking to detect holds based on color similarity. This method is useful when you have a reference color or want to detect holds of a specific color.
-
-**Features**:
-
-- HSV color-based hold detection
-- Background removal using HSV thresholds
-- No model required (works with color information only)
-- Configurable hue, saturation, and value tolerances
-
-**Parameters**:
-
-- `hue_tolerance`: Hue tolerance for color matching (0-179, default: 5)
-- `sat_tolerance`: Saturation tolerance (0-255, default: 50)
-- `val_tolerance`: Value tolerance (0-255, default: 40)
-
-**Output**:
-
-- `masks/`: Binary mask images for detected holds
-- `segmentation_results.json`: Metadata with mask paths
 
 ### Hold Detection
 
@@ -622,7 +705,7 @@ Computes derived features from pose landmarks:
 - **Computer Vision**: MediaPipe 0.10.9, OpenCV, Ultralytics YOLOv8
 - **ML**: PyTorch (BiLSTM, Transformer), XGBoost, scikit-learn
 - **Web**: FastAPI, Uvicorn, Jinja2
-- **Storage**: Local filesystem + optional Google Cloud Storage
+- **Storage**: Local filesystem (temporary) + required Google Cloud Storage
 - **Testing**: pytest
 
 ---

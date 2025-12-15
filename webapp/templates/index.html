@@ -3,8 +3,208 @@
 
 <head>
     <meta charset="utf-8">
-    <title>BetaMove Pipeline UI</title>
+    <title>Analysis - BetaMove</title>
     <link rel="stylesheet" href="/static/app.css">
+    <style>
+        /* Progress Steps */
+        .progress-steps {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px;
+            background: var(--card-bg, #1e1e1e);
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .progress-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px 16px;
+            background: #2a2a2a;
+            border-radius: 6px;
+            min-width: 100px;
+            transition: all 0.3s ease;
+        }
+
+        .progress-step .step-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .progress-step .step-name {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .progress-step .step-status {
+            font-size: 11px;
+            color: #666;
+        }
+
+        .progress-step.completed {
+            background: #1a3d1a;
+            border: 1px solid #2d5a2d;
+        }
+
+        .progress-step.completed .step-status {
+            color: #4ade80;
+        }
+
+        .progress-step.active {
+            background: #1a2d4d;
+            border: 1px solid #2d4a7d;
+            animation: pulse 1.5s infinite;
+        }
+
+        .progress-step.active .step-status {
+            color: #60a5fa;
+        }
+
+        .progress-step.failed {
+            background: #3d1a1a;
+            border: 1px solid #5a2d2d;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        /* Video and Recommendations Grid */
+        .visualization-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .visualization-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .video-player-container {
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            min-height: 200px;
+        }
+
+        .video-player-container video {
+            width: 100%;
+            height: auto;
+            max-height: 400px;
+            display: block;
+            object-fit: contain;
+        }
+
+        .recommendations-panel {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .recommendation-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: #2a2a2a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+        }
+
+        .recommendation-card:hover {
+            background: #333;
+        }
+
+        .recommendation-card .hold-type {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .recommendation-card .hold-info {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .recommendation-card .confidence {
+            margin-left: auto;
+            font-size: 14px;
+            color: #4ade80;
+        }
+
+        /* Climber Profile Form */
+        .climber-profile {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            padding: 16px;
+            background: #1e1e1e;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 600px) {
+            .climber-profile {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .climber-profile .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .climber-profile label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .climber-profile input {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: #fff;
+        }
+
+        /* Low Efficiency Frames */
+        .efficiency-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .efficiency-badge.low {
+            background: #dc2626;
+            color: #fff;
+        }
+
+        .efficiency-badge.medium {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        .efficiency-badge.high {
+            background: #22c55e;
+            color: #000;
+        }
+    </style>
 </head>
 
 <body>
@@ -13,81 +213,25 @@
             <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
                     alt="BetaMove logo"><span>BetaMove</span></a>
             <nav>
-                <a href="/" class="active">Pipeline</a>
+                <a href="/" class="active">Analysis</a>
                 <a href="/training">Training</a>
-                <a href="/testing">Testing</a>
+                <span style="color: #666; margin: 0 12px;">|</span>
+                <a href="/detection">Detection Model Training</a>
             </nav>
         </div>
     </header>
     <main class="container">
         <section class="card">
-            <h1 class="title">BetaMove Pipeline</h1>
-            <p class="subtitle">Run the end-to-end pose analysis pipeline from your browser.</p>
+            <h1 class="title">BetaMove Analysis</h1>
+            <p class="subtitle">Test your trained models by uploading a climbing video for analysis.</p>
             <form id="pipeline-form" class="form">
                 <div class="form-row">
                     <label for="video_file">Upload video</label>
                     <input type="file" id="video_file" name="video" accept="video/*" required>
-                    <p class="hint">The uploaded video will be used for this run.</p>
+                    <p class="hint">Upload a climbing video to analyze with your trained models.</p>
                 </div>
-                <div class="form-row">
-                    <label for="output_dir">Output directory</label>
-                    <input type="text" id="output_dir" name="output_dir" value="data/frames" required>
-                </div>
-                <div class="form-row inline">
-                    <div>
-                        <label for="interval">Interval (seconds): <span id="interval_value">1.0</span>s</label>
-                        <input type="range" id="interval" name="interval" min="0.2" max="1.0" step="0.1" value="1.0">
-                    </div>
-                    <div class="checkbox">
-                        <input type="checkbox" id="skip_visuals" name="skip_visuals">
-                        <label for="skip_visuals">Skip visualization</label>
-                    </div>
-                </div>
-                <fieldset>
-                    <legend>YOLO still selection</legend>
-                    <div class="form-row inline">
-                        <div class="checkbox">
-                            <input type="checkbox" id="enable_yolo" name="enable_yolo" checked>
-                            <label for="enable_yolo">Enable YOLO filtering</label>
-                        </div>
-                        <div>
-                            <label for="yolo_min_confidence">Min confidence</label>
-                            <input type="number" id="yolo_min_confidence" name="yolo_min_confidence" min="0" max="1"
-                                step="0.05" value="0.35">
-                        </div>
-                        <div>
-                            <label for="yolo_max_frames">Max frames</label>
-                            <input type="number" id="yolo_max_frames" name="yolo_max_frames" min="1" placeholder="auto">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <label for="yolo_required_labels">Required labels</label>
-                        <input type="text" id="yolo_required_labels" name="yolo_required_labels" value="climber,person">
-                        <p class="hint">Frame is kept when any of these labels exceed the confidence threshold.</p>
-                    </div>
-                    <div class="form-row">
-                        <label for="yolo_target_labels">Target labels</label>
-                        <input type="text" id="yolo_target_labels" name="yolo_target_labels"
-                            value="climber,person,hold,wall">
-                    </div>
-                    <div class="form-row inline">
-                        <div>
-                            <label for="yolo_model_name">Model weights</label>
-                            <input type="text" id="yolo_model_name" name="yolo_model_name" value="yolov8n.pt">
-                        </div>
-                        <div>
-                            <label for="yolo_imgsz">Image size</label>
-                            <input type="number" id="yolo_imgsz" name="yolo_imgsz" value="640" min="128" max="1536"
-                                step="32">
-                        </div>
-                        <div>
-                            <label for="yolo_device">Device override</label>
-                            <input type="text" id="yolo_device" name="yolo_device" placeholder="cpu / cuda:0">
-                        </div>
-                    </div>
-                </fieldset>
                 <div class="form-actions">
-                    <button id="run" type="submit">Run pipeline</button>
+                    <button id="run" type="submit">Analyze Video</button>
                     <button id="clear" type="button" class="secondary-btn">Clear</button>
                     <span id="form-status" class="status"></span>
                 </div>
@@ -96,7 +240,7 @@
 
         <section class="card">
             <div class="card-header">
-                <h2>Runs</h2>
+                <h2>Analysis Runs</h2>
                 <button id="refresh" type="button">Refresh</button>
             </div>
             <div class="table-wrapper">
@@ -105,63 +249,146 @@
                         <tr>
                             <th>ID</th>
                             <th>Status</th>
-                            <th>Video dir</th>
-                            <th>Interval</th>
+                            <th>Progress</th>
+                            <th>Duration</th>
+                            <th>Frames</th>
                             <th>Created</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for job in jobs %}
                         <tr data-job-id="{{ job.id }}">
-                            <td>{{ job.id }}</td>
+                            <td>{{ job.id[:8] }}...</td>
                             <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span>
                             </td>
-                            <td>{{ job.video_dir }}</td>
-                            <td>{{ job.interval }}</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>-</td>
                             <td>{{ job.created_at }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            <p class="hint">Select a run to inspect its logs.</p>
+            <p class="hint">Select a run to view details and analysis results.</p>
         </section>
 
         <section class="card">
             <div class="card-header">
-                <h2>Logs</h2>
+                <h2>Processing Status</h2>
                 <span id="log-title">No run selected</span>
             </div>
-            <pre id="log-output" class="log-output"></pre>
+            <div id="progress-steps" class="progress-steps" style="display: none; margin-bottom: 16px;">
+                <div class="progress-step" data-step="upload">
+                    <span class="step-icon">📤</span>
+                    <span class="step-name">Upload</span>
+                    <span class="step-status">-</span>
+                </div>
+                <div class="progress-step" data-step="extract">
+                    <span class="step-icon">🎞️</span>
+                    <span class="step-name">Frame Extraction</span>
+                    <span class="step-status">-</span>
+                </div>
+                <div class="progress-step" data-step="detect">
+                    <span class="step-icon">🎯</span>
+                    <span class="step-name">Hold Detection</span>
+                    <span class="step-status">-</span>
+                </div>
+                <div class="progress-step" data-step="pose">
+                    <span class="step-icon">🏃</span>
+                    <span class="step-name">Pose Estimation</span>
+                    <span class="step-status">-</span>
+                </div>
+                <div class="progress-step" data-step="features">
+                    <span class="step-icon">📊</span>
+                    <span class="step-name">Feature Extraction</span>
+                    <span class="step-status">-</span>
+                </div>
+                <div class="progress-step" data-step="analysis">
+                    <span class="step-icon">🧠</span>
+                    <span class="step-name">Analysis</span>
+                    <span class="step-status">-</span>
+                </div>
+            </div>
+            <details id="log-details">
+                <summary>Show Detailed Logs</summary>
+                <pre id="log-output" class="log-output"></pre>
+            </details>
         </section>
 
         <section class="card">
             <div class="card-header">
-                <h2>Visualizations</h2>
+                <h2>Video Analysis</h2>
+                <span id="frame-info" class="secondary"></span>
             </div>
-            <div id="visual-grid" class="image-grid">
-                <p class="hint">No visualizations yet. Run the pipeline with visualization enabled.</p>
+            <div class="visualization-grid">
+                <!-- Left: Video Player -->
+                <div class="video-player-container">
+                    <video id="analysis-video">
+                        <source src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="video-placeholder" class="hint" style="padding: 40px; text-align: center;">
+                        Select a completed analysis run to view the video
+                    </div>
+                </div>
+                <!-- Right: Next Move Recommendations -->
+                <div class="recommendations-panel">
+                    <h3 style="color: #fff; margin-top: 0; margin-bottom: 12px; font-size: 16px;">
+                        Next Move Candidates
+                    </h3>
+                    <div id="recommendations-list">
+                        <p class="hint">Pause the video to see recommended next moves for that frame.</p>
+                    </div>
+                    <div id="current-contacts" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #333;">
+                        <h4 style="color: #888; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase;">
+                            Current Contact Points
+                        </h4>
+                        <div id="contacts-display" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="contact-item" data-limb="left_hand">
+                                <span style="color: #888;">Left Hand:</span> <span class="contact-value">-</span>
+                            </div>
+                            <div class="contact-item" data-limb="right_hand">
+                                <span style="color: #888;">Right Hand:</span> <span class="contact-value">-</span>
+                            </div>
+                            <div class="contact-item" data-limb="left_foot">
+                                <span style="color: #888;">Left Foot:</span> <span class="contact-value">-</span>
+                            </div>
+                            <div class="contact-item" data-limb="right_foot">
+                                <span style="color: #888;">Right Foot:</span> <span class="contact-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Additional visualizations -->
+            <div id="visual-grid" class="image-grid" style="margin-top: 16px;">
             </div>
         </section>
 
         <section class="card">
             <div class="card-header">
-                <h2>Pose Samples</h2>
-                <span id="pose-count" class="secondary"></span>
+                <h2>Low Efficiency Frames</h2>
+                <span id="low-eff-count" class="secondary"></span>
             </div>
+            <p class="hint" style="margin-bottom: 12px;">
+                Frames where the climber's efficiency score is below threshold. These are moments where technique could
+                be improved.
+            </p>
             <div class="table-wrapper">
-                <table id="pose-table">
+                <table id="low-efficiency-table">
                     <thead>
                         <tr>
-                            <th>Image</th>
+                            <th>Frame</th>
                             <th>Timestamp (s)</th>
-                            <th>Detection Score</th>
+                            <th>Efficiency Score</th>
+                            <th>Suggested Action</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
                 </table>
             </div>
-            <p id="pose-empty" class="hint">No pose sample data yet.</p>
+            <p id="low-eff-empty" class="hint">No low efficiency frames detected. Good climbing form!</p>
         </section>
 
         <section class="card">
@@ -169,16 +396,39 @@
                 <h2>Efficiency & Recommendations</h2>
                 <button id="analysis-refresh" type="button">Refresh</button>
             </div>
+
+            <!-- Climber Profile Form -->
+            <div class="climber-profile" id="climber-profile-form">
+                <div class="form-group">
+                    <label for="climber-height">Height (cm)</label>
+                    <input type="number" id="climber-height" placeholder="e.g., 175" min="100" max="250" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="climber-wingspan">Wingspan (cm)</label>
+                    <input type="number" id="climber-wingspan" placeholder="e.g., 180" min="100" max="300" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="climber-flexibility">Flexibility (0-1)</label>
+                    <input type="range" id="climber-flexibility" min="0" max="1" step="0.1" value="0.5">
+                    <span id="flexibility-value" style="color: #888; font-size: 11px;">0.5 (Average)</span>
+                </div>
+            </div>
+            <p class="hint" style="margin-bottom: 16px;">
+                Set your physical characteristics to get personalized hold recommendations based on your reach and
+                flexibility.
+            </p>
+
             <div id="efficiency-block">
                 <p class="hint" id="efficiency-hint">Select a completed run to view analysis.</p>
                 <div id="efficiency-score" class="metrics"></div>
+                <h4 style="color: #fff; margin: 16px 0 8px 0; font-size: 14px;">Recommended Next Holds</h4>
                 <table id="next-holds-table" class="compact">
                     <thead>
                         <tr>
                             <th>Hold ID</th>
-                            <th>Label</th>
-                            <th>Coords</th>
-                            <th>Score Heuristic</th>
+                            <th>Type</th>
+                            <th>Position</th>
+                            <th>Confidence</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -187,6 +437,8 @@
         </section>
     </main>
 
+    <script src="/static/feedback-widget.js"></script>
+    <script src="/static/job-notifications.js"></script>
     <script>
         const form = document.getElementById("pipeline-form");
         const statusEl = document.getElementById("form-status");
@@ -195,15 +447,73 @@
         const logTitle = document.getElementById("log-title");
         const refreshButton = document.getElementById("refresh");
         const fileInput = document.getElementById("video_file");
-        const intervalInput = document.getElementById("interval");
-        const intervalValue = document.getElementById("interval_value");
         const visualGrid = document.getElementById("visual-grid");
-        const poseTableBody = document.querySelector("#pose-table tbody");
-        const poseEmpty = document.getElementById("pose-empty");
-        const poseCount = document.getElementById("pose-count");
         const clearButton = document.getElementById("clear");
         const runButton = document.getElementById("run");
+        const analysisVideo = document.getElementById("analysis-video");
+        const videoPlaceholder = document.getElementById("video-placeholder");
         let selectedJobId = null;
+        let currentVideoFps = 30; // Default FPS, will be updated from job data
+        let lastRecommendationFrame = -1;
+
+        // =====================================================
+        // Climber Profile Management
+        // =====================================================
+        function loadClimberProfile() {
+            const height = localStorage.getItem('climber_height');
+            const wingspan = localStorage.getItem('climber_wingspan');
+            const flexibility = localStorage.getItem('climber_flexibility');
+
+            if (height) document.getElementById('climber-height').value = height;
+            if (wingspan) document.getElementById('climber-wingspan').value = wingspan;
+            if (flexibility) {
+                document.getElementById('climber-flexibility').value = flexibility;
+                updateFlexibilityLabel(flexibility);
+            }
+        }
+
+        function saveClimberProfile() {
+            const height = document.getElementById('climber-height').value;
+            const wingspan = document.getElementById('climber-wingspan').value;
+            const flexibility = document.getElementById('climber-flexibility').value;
+
+            if (height) localStorage.setItem('climber_height', height);
+            if (wingspan) localStorage.setItem('climber_wingspan', wingspan);
+            if (flexibility) localStorage.setItem('climber_flexibility', flexibility);
+        }
+
+        function getClimberProfile() {
+            return {
+                height: parseFloat(document.getElementById('climber-height').value) || null,
+                wingspan: parseFloat(document.getElementById('climber-wingspan').value) || null,
+                flexibility: parseFloat(document.getElementById('climber-flexibility').value) || 0.5,
+            };
+        }
+
+        function updateFlexibilityLabel(value) {
+            const label = document.getElementById('flexibility-value');
+            if (label) {
+                const v = parseFloat(value);
+                let text = v.toFixed(1);
+                if (v < 0.3) text += ' (Low)';
+                else if (v > 0.7) text += ' (High)';
+                else text += ' (Average)';
+                label.textContent = text;
+            }
+        }
+
+        // Setup climber profile event listeners
+        document.getElementById('climber-height')?.addEventListener('change', saveClimberProfile);
+        document.getElementById('climber-wingspan')?.addEventListener('change', saveClimberProfile);
+        document.getElementById('climber-flexibility')?.addEventListener('input', (e) => {
+            updateFlexibilityLabel(e.target.value);
+            saveClimberProfile();
+            // Refresh recommendations with new profile
+            if (selectedJobId) loadAnalysis(selectedJobId);
+        });
+
+        // Load profile on page load
+        loadClimberProfile();
 
         async function createJob(payload) {
             const response = await fetch("/api/jobs", {
@@ -219,37 +529,8 @@
         }
 
         function serializeForm(formData) {
-            const parseList = (value) => (value || "")
-                .split(",")
-                .map(item => item.trim())
-                .filter(Boolean);
-            const parseNumber = (value, fallback) => {
-                if (value === undefined || value === null || value === "") {
-                    return fallback;
-                }
-                const num = Number(value);
-                return Number.isFinite(num) ? num : fallback;
-            };
-            const minConfidence = parseNumber(formData.get("yolo_min_confidence"), 0.35);
-            const maxFramesRaw = formData.get("yolo_max_frames");
-            const maxFrames = maxFramesRaw ? parseNumber(maxFramesRaw, null) : null;
-            const intervalValue = parseNumber(formData.get("interval") || "1.0", 1.0);
-            const yolo = {
-                enabled: formData.get("enable_yolo") === "on",
-                min_confidence: minConfidence,
-                required_labels: parseList(formData.get("yolo_required_labels")),
-                target_labels: parseList(formData.get("yolo_target_labels")),
-                max_frames: maxFrames && maxFrames > 0 ? maxFrames : null,
-                model_name: formData.get("yolo_model_name") || "yolov8n.pt",
-                imgsz: parseNumber(formData.get("yolo_imgsz"), 640),
-                device: formData.get("yolo_device") || null,
-            };
-            return {
-                output_dir: formData.get("output_dir"),
-                interval: intervalValue,
-                skip_visuals: formData.get("skip_visuals") === "on",
-                yolo,
-            };
+            // Simple form serialization - YOLO settings are managed in /detection page
+            return {};
         }
 
         async function uploadSelectedVideo() {
@@ -308,55 +589,202 @@
             });
         }
 
-        function renderPoseSamples(samples) {
-            if (!poseTableBody) {
+        // =====================================================
+        // Low Efficiency Frames
+        // =====================================================
+        async function renderLowEfficiencyFrames(jobData, jobId) {
+            const tableBody = document.querySelector("#low-efficiency-table tbody");
+            const emptyEl = document.getElementById("low-eff-empty");
+            const countEl = document.getElementById("low-eff-count");
+
+            if (!tableBody) return;
+            tableBody.innerHTML = "";
+
+            if (!jobId || !jobData || jobData.status !== 'completed') {
+                if (emptyEl) emptyEl.style.display = "block";
+                if (countEl) countEl.textContent = "";
                 return;
             }
-            poseTableBody.innerHTML = "";
-            if (!samples || samples.length === 0) {
-                if (poseEmpty) {
-                    poseEmpty.style.display = "block";
+
+            try {
+                // Fetch ML predictions to get efficiency scores
+                const resp = await fetch(`/api/jobs/${jobId}/ml_predictions`);
+                if (!resp.ok) {
+                    if (emptyEl) emptyEl.style.display = "block";
+                    if (countEl) countEl.textContent = "";
+                    return;
                 }
-                if (poseCount) {
-                    poseCount.textContent = "";
+
+                const data = await resp.json();
+                const predictions = data.predictions || [];
+
+                // Filter low efficiency frames (threshold: 0.5)
+                const lowEffFrames = predictions
+                    .filter(p => p.efficiency_score < 0.5)
+                    .sort((a, b) => a.efficiency_score - b.efficiency_score);
+
+                if (lowEffFrames.length === 0) {
+                    if (emptyEl) emptyEl.style.display = "block";
+                    if (countEl) countEl.textContent = "";
+                    return;
+                }
+
+                if (emptyEl) emptyEl.style.display = "none";
+                if (countEl) countEl.textContent = `${lowEffFrames.length} frames`;
+
+                lowEffFrames.forEach((frame) => {
+                    const row = document.createElement("tr");
+                    const score = frame.efficiency_score;
+                    const badgeClass = score < 0.3 ? 'low' : 'medium';
+
+                    row.innerHTML = `
+                        <td>${frame.frame_index}</td>
+                        <td>${(frame.frame_index / currentVideoFps).toFixed(2)}</td>
+                        <td><span class="efficiency-badge ${badgeClass}">${score.toFixed(3)}</span></td>
+                        <td>${frame.next_action || '-'}</td>
+                    `;
+
+                    // Click to jump to this frame in video
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('click', () => {
+                        if (analysisVideo && analysisVideo.src) {
+                            analysisVideo.currentTime = frame.frame_index / currentVideoFps;
+                        }
+                    });
+
+                    tableBody.appendChild(row);
+                });
+            } catch (err) {
+                console.error('Failed to load efficiency predictions:', err);
+                if (emptyEl) emptyEl.style.display = "block";
+                if (countEl) countEl.textContent = "";
+            }
+        }
+
+        // =====================================================
+        // Video Player and Frame Recommendations
+        // =====================================================
+        function setupVideoPlayer(videoPath) {
+            if (!analysisVideo || !videoPath) {
+                if (videoPlaceholder) videoPlaceholder.style.display = 'block';
+                if (analysisVideo) {
+                    analysisVideo.style.display = 'none';
+                    analysisVideo.removeAttribute('controls');
                 }
                 return;
             }
-            if (poseEmpty) {
-                poseEmpty.style.display = "none";
-            }
-            if (poseCount) {
-                poseCount.textContent = `${samples.length} frames`;
-            }
 
-            samples.forEach((sample) => {
-                const row = document.createElement("tr");
-
-                const imageCell = document.createElement("td");
-                if (sample.image_url) {
-                    const link = document.createElement("a");
-                    link.href = sample.image_url;
-                    link.target = "_blank";
-                    link.rel = "noopener noreferrer";
-                    link.textContent = sample.image_name || sample.image_path || "view";
-                    imageCell.appendChild(link);
+            // Normalize path: remove leading slash if present, ensure it starts with repo mount
+            let normalizedPath = videoPath;
+            // Remove leading slash if it's an absolute path indicator
+            if (normalizedPath.startsWith('/')) {
+                normalizedPath = normalizedPath.substring(1);
+            }
+            // Remove ROOT_DIR prefix if present (absolute path)
+            if (normalizedPath.includes('/Users/') || normalizedPath.includes('C:\\')) {
+                // Try to extract relative path - assume it's under data/ or similar
+                const match = normalizedPath.match(/(data\/[^\/]+.*)/);
+                if (match) {
+                    normalizedPath = match[1];
                 } else {
-                    imageCell.textContent = sample.image_name || sample.image_path || "—";
+                    // If we can't extract, just use as-is and let server handle it
+                    console.warn('Could not normalize video path:', videoPath);
                 }
-                row.appendChild(imageCell);
+            }
 
-                const timestampCell = document.createElement("td");
-                const timestamp = Number(sample.timestamp_seconds);
-                timestampCell.textContent = Number.isFinite(timestamp) ? timestamp.toFixed(2) : "—";
-                row.appendChild(timestampCell);
+            // Set video source
+            analysisVideo.src = `/repo/${normalizedPath}`;
+            analysisVideo.style.display = 'block';
+            if (videoPlaceholder) videoPlaceholder.style.display = 'none';
 
-                const scoreCell = document.createElement("td");
-                const score = Number(sample.detection_score);
-                scoreCell.textContent = Number.isFinite(score) ? score.toFixed(3) : "—";
-                row.appendChild(scoreCell);
-
-                poseTableBody.appendChild(row);
+            // Enable controls only when video is loaded
+            analysisVideo.addEventListener('loadedmetadata', () => {
+                analysisVideo.setAttribute('controls', 'controls');
             });
+
+            // Load frame recommendations when video is paused
+            analysisVideo.addEventListener('pause', () => {
+                loadFrameRecommendations();
+            });
+
+            // Also update on seeking
+            analysisVideo.addEventListener('seeked', () => {
+                if (analysisVideo.paused) {
+                    loadFrameRecommendations();
+                }
+            });
+        }
+
+        async function loadFrameRecommendations() {
+            if (!selectedJobId || !analysisVideo) return;
+
+            const currentTime = analysisVideo.currentTime;
+            const frameIndex = Math.floor(currentTime * currentVideoFps);
+
+            // Avoid duplicate requests for same frame
+            if (frameIndex === lastRecommendationFrame) return;
+            lastRecommendationFrame = frameIndex;
+
+            const profile = getClimberProfile();
+            const recommendationsList = document.getElementById('recommendations-list');
+            const contactsDisplay = document.getElementById('contacts-display');
+            const frameInfo = document.getElementById('frame-info');
+
+            if (frameInfo) {
+                frameInfo.textContent = `Frame ${frameIndex} | ${currentTime.toFixed(2)}s`;
+            }
+
+            try {
+                let url = `/api/jobs/${selectedJobId}/frame-recommendations?frame_index=${frameIndex}`;
+                if (profile.height) url += `&climber_height=${profile.height}`;
+                if (profile.wingspan) url += `&climber_wingspan=${profile.wingspan}`;
+                if (profile.flexibility !== null) url += `&climber_flexibility=${profile.flexibility}`;
+
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error('Failed to load recommendations');
+
+                const data = await resp.json();
+
+                // Render recommendations
+                if (recommendationsList) {
+                    if (data.recommendations && data.recommendations.length > 0) {
+                        recommendationsList.innerHTML = data.recommendations.map((rec, idx) => `
+                            <div class="recommendation-card">
+                                <span style="color: #666; font-size: 18px; width: 24px;">${idx + 1}</span>
+                                <div>
+                                    <div class="hold-type">${rec.label || rec.hold_type || 'Hold'}</div>
+                                    <div class="hold-info">ID: ${rec.hold_id || '-'}</div>
+                                </div>
+                                <span class="confidence">${rec.avg_confidence ? (rec.avg_confidence * 100).toFixed(0) + '%' : '-'}</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        recommendationsList.innerHTML = '<p class="hint">No recommendations available for this frame.</p>';
+                    }
+                }
+
+                // Update current contacts
+                if (contactsDisplay && data.current_contacts) {
+                    ['left_hand', 'right_hand', 'left_foot', 'right_foot'].forEach(limb => {
+                        const contactEl = contactsDisplay.querySelector(`[data-limb="${limb}"] .contact-value`);
+                        if (contactEl) {
+                            const contact = data.current_contacts[limb];
+                            if (contact && contact.active) {
+                                contactEl.textContent = contact.hold_id || 'Active';
+                                contactEl.style.color = '#4ade80';
+                            } else {
+                                contactEl.textContent = '-';
+                                contactEl.style.color = '#666';
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load frame recommendations:', err);
+                if (recommendationsList) {
+                    recommendationsList.innerHTML = '<p class="hint">Unable to load recommendations.</p>';
+                }
+            }
         }
 
         async function clearServerJob(jobId) {
@@ -372,7 +800,47 @@
             logTitle.textContent = "No run selected";
             document.getElementById("log-output").textContent = "";
             renderVisualizations([]);
-            renderPoseSamples([]);
+            renderLowEfficiencyFrames(null, null);
+
+            // Reset video player
+            if (analysisVideo) {
+                analysisVideo.src = '';
+                analysisVideo.style.display = 'none';
+            }
+            if (videoPlaceholder) {
+                videoPlaceholder.style.display = 'block';
+            }
+
+            // Reset recommendations
+            const recommendationsList = document.getElementById('recommendations-list');
+            if (recommendationsList) {
+                recommendationsList.innerHTML = '<p class="hint">Pause the video to see recommended next moves for that frame.</p>';
+            }
+        }
+
+        function formatDuration(startedAt, finishedAt) {
+            if (!startedAt) return '-';
+            const start = new Date(startedAt);
+            const end = finishedAt ? new Date(finishedAt) : new Date();
+            const diffMs = end - start;
+            const diffSec = Math.floor(diffMs / 1000);
+            if (diffSec < 60) return `${diffSec}s`;
+            const mins = Math.floor(diffSec / 60);
+            const secs = diffSec % 60;
+            return `${mins}m ${secs}s`;
+        }
+
+        function getProgressFromLogs(logs) {
+            if (!logs || logs.length === 0) return 'Queued';
+            const lastLog = logs[logs.length - 1].toLowerCase();
+            if (lastLog.includes('complete') || lastLog.includes('finished')) return 'Done';
+            if (lastLog.includes('analysis') || lastLog.includes('efficiency')) return 'Analyzing';
+            if (lastLog.includes('feature')) return 'Features';
+            if (lastLog.includes('pose')) return 'Pose';
+            if (lastLog.includes('hold') || lastLog.includes('detect')) return 'Detection';
+            if (lastLog.includes('extract') || lastLog.includes('frame')) return 'Extracting';
+            if (lastLog.includes('upload')) return 'Uploading';
+            return 'Processing';
         }
 
         function renderJobs(jobs) {
@@ -380,13 +848,21 @@
             jobs.forEach(job => {
                 const row = document.createElement("tr");
                 row.dataset.jobId = job.id;
+                const duration = formatDuration(job.started_at, job.finished_at);
+                const frameCount = job.pose_samples ? job.pose_samples.length : '-';
+                const progress = job.status === 'completed' ? 'Done' :
+                    job.status === 'failed' ? 'Failed' :
+                        job.status === 'pending' ? 'Queued' : 'Processing';
+                const statusBadge = `<span class="badge badge-${job.status}">${job.status}</span>`;
+                const createdDate = new Date(job.created_at).toLocaleString();
                 row.innerHTML = `
-            <td>${job.id}</td>
-            <td class="status-cell">${job.status}</td>
-            <td>${job.video_dir}</td>
-            <td>${job.interval.toFixed ? job.interval.toFixed(2) : job.interval}</td>
-            <td>${job.created_at}</td>
-        `;
+                    <td title="${job.id}">${job.id.substring(0, 8)}...</td>
+                    <td class="status-cell">${statusBadge}</td>
+                    <td>${progress}</td>
+                    <td>${duration}</td>
+                    <td>${frameCount}</td>
+                    <td>${createdDate}</td>
+                `;
                 if (job.id === selectedJobId) {
                     row.classList.add("selected");
                 }
@@ -411,6 +887,62 @@
             }
         }
 
+        function updateProgressSteps(logs, status) {
+            const progressEl = document.getElementById('progress-steps');
+            if (!progressEl) return;
+            progressEl.style.display = 'flex';
+
+            const steps = ['upload', 'extract', 'detect', 'pose', 'features', 'analysis'];
+            const stepElements = progressEl.querySelectorAll('.progress-step');
+
+            // Reset all steps
+            stepElements.forEach(el => {
+                el.classList.remove('completed', 'active', 'failed');
+                el.querySelector('.step-status').textContent = '-';
+            });
+
+            if (status === 'failed') {
+                stepElements.forEach(el => el.classList.add('failed'));
+                return;
+            }
+
+            if (!logs || logs.length === 0) return;
+
+            const logsLower = logs.map(l => l.toLowerCase()).join(' ');
+
+            // Check each step
+            const stepPatterns = {
+                upload: ['upload', 'video received'],
+                extract: ['extract', 'frame', 'sampl'],
+                detect: ['hold', 'detect', 'yolo'],
+                pose: ['pose', 'mediapipe', 'skeleton'],
+                features: ['feature', 'contact'],
+                analysis: ['analysis', 'efficiency', 'recommend', 'complete']
+            };
+
+            let lastCompleted = -1;
+            steps.forEach((step, idx) => {
+                const patterns = stepPatterns[step];
+                const found = patterns.some(p => logsLower.includes(p));
+                const stepEl = progressEl.querySelector(`[data-step="${step}"]`);
+                if (found) {
+                    stepEl.classList.add('completed');
+                    stepEl.querySelector('.step-status').textContent = '✓';
+                    lastCompleted = idx;
+                }
+            });
+
+            // Mark next step as active if job is running
+            if (status === 'running' && lastCompleted < steps.length - 1) {
+                const nextStep = steps[lastCompleted + 1];
+                const nextStepEl = progressEl.querySelector(`[data-step="${nextStep}"]`);
+                if (nextStepEl) {
+                    nextStepEl.classList.add('active');
+                    nextStepEl.querySelector('.step-status').textContent = '...';
+                }
+            }
+        }
+
         async function loadLogs(jobId) {
             try {
                 const response = await fetch(`/api/jobs/${jobId}`);
@@ -418,16 +950,30 @@
                     throw new Error("Failed to fetch job logs");
                 }
                 const data = await response.json();
-                logTitle.textContent = `Run ${data.id} (${data.status})`;
-                logOutput.textContent = data.logs.join("\\n") || "No logs yet.";
+                logTitle.textContent = `Run ${data.id.substring(0, 8)}... (${data.status})`;
+                logOutput.textContent = data.logs.join("\n") || "No logs yet.";
+
+                // Update progress steps visualization
+                updateProgressSteps(data.logs, data.status);
+
+                // Setup video player if job has video
+                if (data.video_path) {
+                    // Use video_path (relative path from server) if available
+                    setupVideoPlayer(data.video_path);
+                } else if (data.video_dir) {
+                    // Fallback: try to find video in video_dir (legacy support)
+                    const videoPath = data.video_dir;
+                    setupVideoPlayer(videoPath);
+                }
+
                 renderVisualizations(data.visualizations || []);
-                renderPoseSamples(data.pose_samples || []);
+                renderLowEfficiencyFrames(data, jobId);
                 await loadAnalysis(jobId);
             } catch (err) {
                 logTitle.textContent = "Unable to load logs";
                 logOutput.textContent = String(err);
                 renderVisualizations([]);
-                renderPoseSamples([]);
+                renderLowEfficiencyFrames(null, null);
                 clearAnalysis();
             }
         }
@@ -437,21 +983,57 @@
             const hintEl = document.getElementById("efficiency-hint");
             const tableBody = document.querySelector("#next-holds-table tbody");
             if (!jobId || !scoreEl || !tableBody) return;
+
             try {
-                const resp = await fetch(`/api/jobs/${jobId}/analysis`);
+                // Build URL with climber profile parameters
+                const profile = getClimberProfile();
+                let url = `/api/jobs/${jobId}/analysis`;
+                const params = new URLSearchParams();
+                if (profile.height) params.append('climber_height', profile.height);
+                if (profile.wingspan) params.append('climber_wingspan', profile.wingspan);
+                if (profile.flexibility !== null) params.append('climber_flexibility', profile.flexibility);
+                if (params.toString()) url += '?' + params.toString();
+
+                const resp = await fetch(url);
                 if (!resp.ok) throw new Error("Analysis endpoint error");
                 const payload = await resp.json();
-                const eff = payload.efficiency || {};
-                scoreEl.innerHTML = `<strong>Efficiency:</strong> ${Number(eff.score).toFixed(3)}<br>` +
-                    Object.entries(eff).filter(([k]) => k !== "score").map(([k, v]) => `${k}: ${Number(v).toFixed ? Number(v).toFixed(3) : v}`).join(" | ");
-                if (hintEl) hintEl.textContent = `Wall angle: ${payload.wall_angle !== null && payload.wall_angle !== undefined ? Number(payload.wall_angle).toFixed(1) + '°' : 'n/a'} | Holds: ${payload.holds_count}`;
+
+                // Display analysis info
+                let infoText = `Wall angle: ${payload.wall_angle !== null && payload.wall_angle !== undefined ? Number(payload.wall_angle).toFixed(1) + '°' : 'n/a'} | Holds: ${payload.holds_count}`;
+                infoText += ` | Frame: ${payload.frame_index + 1}/${payload.total_frames}`;
+                if (hintEl) hintEl.textContent = infoText;
+
+                // Show climber profile if set
+                const profileInfo = payload.climber_profile;
+                if (profileInfo && (profileInfo.height || profileInfo.wingspan)) {
+                    scoreEl.innerHTML = `
+                        <div style="margin-bottom: 8px; color: #888; font-size: 12px;">
+                            Personalized for: ${profileInfo.height ? profileInfo.height + 'cm' : '-'} height, 
+                            ${profileInfo.wingspan ? profileInfo.wingspan + 'cm' : '-'} wingspan,
+                            ${profileInfo.flexibility !== null ? (profileInfo.flexibility * 100).toFixed(0) + '%' : '-'} flexibility
+                        </div>
+                    `;
+                } else {
+                    scoreEl.innerHTML = '';
+                }
+
+                // Render next holds table
                 tableBody.innerHTML = "";
                 (payload.next_holds || []).forEach(h => {
                     const tr = document.createElement("tr");
-                    tr.innerHTML = `<td>${h.hold_id || h.holdId || '—'}</td><td>${h.label || '—'}</td><td>${(h.coords || []).map(c => Number(c).toFixed(3)).join(',')}</td><td>${h.avg_confidence !== undefined ? Number(h.avg_confidence).toFixed(3) : '—'}</td>`;
+                    const coords = h.coords || [];
+                    const coordStr = coords.length >= 2 ? `(${coords[0].toFixed(2)}, ${coords[1].toFixed(2)})` : '-';
+                    const confidence = h.avg_confidence !== undefined ? (h.avg_confidence * 100).toFixed(0) + '%' : '-';
+                    tr.innerHTML = `
+                        <td>${h.hold_id || h.name || '—'}</td>
+                        <td>${h.hold_type || h.label || '—'}</td>
+                        <td>${coordStr}</td>
+                        <td>${confidence}</td>
+                    `;
                     tableBody.appendChild(tr);
                 });
             } catch (err) {
+                console.error('Analysis load error:', err);
                 if (scoreEl) scoreEl.textContent = "Analysis unavailable";
             }
         }
@@ -499,7 +1081,6 @@
         refreshButton.addEventListener("click", refreshJobs);
         setInterval(refreshJobs, 5000);
         renderVisualizations([]);
-        renderPoseSamples([]);
         refreshJobs();
 
         if (clearButton) {
@@ -517,15 +1098,32 @@
             });
         }
 
-        function updateIntervalLabel() {
-            if (intervalInput && intervalValue) {
-                const val = parseFloat(intervalInput.value || "1.0");
-                intervalValue.textContent = (Number.isFinite(val) ? val.toFixed(1) : "1.0");
+        // Handle job selection from notification
+        window.addEventListener('selectJob', (event) => {
+            const jobId = event.detail.jobId;
+            if (jobId) {
+                selectedJobId = jobId;
+                refreshJobs().then(() => {
+                    loadLogs(jobId);
+                    // Scroll to job in table and highlight it
+                    const row = document.querySelector(`tr[data-job-id="${jobId}"]`);
+                    if (row) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        row.classList.add('highlight');
+                        setTimeout(() => row.classList.remove('highlight'), 2000);
+                    }
+                });
             }
-        }
-        if (intervalInput) {
-            intervalInput.addEventListener("input", updateIntervalLabel);
-            updateIntervalLabel();
+        });
+
+        // Handle URL parameter for direct job access
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobIdParam = urlParams.get('job');
+        if (jobIdParam) {
+            selectedJobId = jobIdParam;
+            refreshJobs().then(() => {
+                loadLogs(jobIdParam);
+            });
         }
     </script>
 </body>

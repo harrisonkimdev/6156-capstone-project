@@ -24,21 +24,17 @@ from ..pose.estimator import PoseEstimator, PoseFrame
 LOGGER = logging.getLogger(__name__)
 
 
-def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray) -> tuple[float, np.ndarray]:
+def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray, max_size: int = 640) -> tuple[float, np.ndarray]:
     """Compute dense optical flow between two frames.
 
     Args:
-        frame1: First frame (grayscale)
-        frame2: Second frame (grayscale)
+        frame1: First frame (grayscale or BGR)
+        frame2: Second frame (grayscale or BGR)
+        max_size: Maximum dimension for resizing (to reduce memory usage)
 
     Returns:
         Tuple of (motion_score, flow_magnitude_array)
     """
-    if frame1.shape != frame2.shape:
-        # Resize to match
-        h, w = frame1.shape[:2]
-        frame2 = cv2.resize(frame2, (w, h))
-
     # Convert to grayscale if needed
     if len(frame1.shape) == 3:
         gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
@@ -50,14 +46,45 @@ def compute_optical_flow(frame1: np.ndarray, frame2: np.ndarray) -> tuple[float,
     else:
         gray2 = frame2
 
-    # Compute optical flow
-    flow = cv2.calcOpticalFlowFarneback(
-        gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0
-    )
+    # Resize frames if too large to reduce memory usage and prevent crashes
+    h, w = gray1.shape[:2]
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        gray1 = cv2.resize(gray1, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        gray2 = cv2.resize(gray2, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        LOGGER.debug("Resized frames from %dx%d to %dx%d for optical flow", w, h, new_w, new_h)
+
+    # Ensure frames have same shape
+    if gray1.shape != gray2.shape:
+        h, w = gray1.shape[:2]
+        gray2 = cv2.resize(gray2, (w, h), interpolation=cv2.INTER_AREA)
+
+    # Validate frame dimensions
+    if gray1.size == 0 or gray2.size == 0:
+        LOGGER.warning("Empty frame detected in optical flow computation")
+        return 0.0, np.array([])
+
+    # Compute optical flow with error handling
+    try:
+        flow = cv2.calcOpticalFlowFarneback(
+            gray1, gray2, None, 0.5, 3, 15, 3, 5, 1.2, 0
+        )
+    except cv2.error as e:
+        LOGGER.error("OpenCV error in optical flow computation: %s", e)
+        return 0.0, np.array([])
+    except Exception as e:
+        LOGGER.error("Unexpected error in optical flow computation: %s", e)
+        return 0.0, np.array([])
 
     # Compute magnitude
-    magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-    motion_score = float(np.mean(magnitude))
+    try:
+        magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+        motion_score = float(np.mean(magnitude))
+    except Exception as e:
+        LOGGER.error("Error computing motion score: %s", e)
+        return 0.0, np.array([])
 
     return motion_score, magnitude
 
@@ -120,6 +147,7 @@ def extract_frames_with_motion(
     initial_sampling_rate: float = 0.1,  # Sample every 0.1s initially
     write_manifest: bool = True,
     overwrite: bool = False,
+    save_all_frames: bool = False,  # Save all frames to all_frames/ directory
 ) -> FrameExtractionResult:
     """Extract frames based on motion detection and pose similarity.
 
@@ -142,6 +170,7 @@ def extract_frames_with_motion(
         initial_sampling_rate: Initial frame sampling rate in seconds
         write_manifest: Write manifest.json file
         overwrite: Overwrite existing frames
+        save_all_frames: Save all extracted frames to 'all_frames/' subdirectory for manual selection
 
     Returns:
         FrameExtractionResult with selected frames
@@ -170,6 +199,7 @@ def extract_frames_with_motion(
         fps,
         initial_sampling_rate,
     )
+    print(f"[SAMPLER] Starting frame extraction: video={source_path.name}, fps={fps:.2f}")
 
     # Step 1: Extract frames at high rate
     temp_frames: list[tuple[int, np.ndarray, float]] = []  # (frame_idx, frame, timestamp)
@@ -192,6 +222,7 @@ def extract_frames_with_motion(
         raise ValueError("No frames extracted from video")
 
     LOGGER.info("Extracted %d candidate frames at high rate", len(temp_frames))
+    print(f"[SAMPLER] Extracted {len(temp_frames)} candidate frames, computing motion scores...")
 
     # Step 2: Compute motion scores
     motion_scores: list[float] = [0.0]  # First frame has no motion
@@ -218,43 +249,51 @@ def extract_frames_with_motion(
 
         prev_frame = frame
 
-    # Step 3: Filter by motion threshold
-    high_motion_indices = [
-        idx for idx, score in enumerate(motion_scores) if score >= motion_threshold
+    # Step 3: Filter out walking segments (high motion = walking in/out)
+    # Select frames with LOW motion (climbing segments)
+    # Walking has high motion, climbing has lower motion
+    climbing_indices = [
+        idx for idx, score in enumerate(motion_scores) if score < motion_threshold
     ]
 
-    if not high_motion_indices:
-        LOGGER.warning("No frames exceeded motion threshold. Using all frames.")
-        high_motion_indices = list(range(len(temp_frames)))
+    if not climbing_indices:
+        LOGGER.warning("No frames below motion threshold (all frames appear to be walking). Using all frames.")
+        print(f"[SAMPLER] Warning: No climbing frames detected, using all {len(temp_frames)} frames")
+        climbing_indices = list(range(len(temp_frames)))
+    else:
+        LOGGER.info("Found %d climbing frames (low motion, out of %d total)", len(climbing_indices), len(temp_frames))
+        LOGGER.info("Excluded %d walking frames (high motion)", len(temp_frames) - len(climbing_indices))
+        print(f"[SAMPLER] Found {len(climbing_indices)} climbing frames (out of {len(temp_frames)} total)")
 
-    LOGGER.info("Found %d frames with high motion", len(high_motion_indices))
-
-    # Step 4: Pose estimation on high-motion frames
+    # Step 4: Pose estimation on climbing frames
     selected_indices: list[int] = []
     pose_frames: list[PoseFrame] = []
 
     if use_pose_similarity:
-        # Save high-motion frames temporarily for pose estimation
+        # Save climbing frames temporarily for pose estimation
         temp_frame_dir = frame_dir / "temp_poses"
         temp_frame_dir.mkdir(exist_ok=True)
         temp_frame_paths: list[Path] = []
 
-        for idx in high_motion_indices:
+        for idx in climbing_indices:
             frame_idx, frame, timestamp = temp_frames[idx]
             temp_path = temp_frame_dir / f"temp_{idx:06d}.jpg"
             cv2.imwrite(str(temp_path), frame)
             temp_frame_paths.append(temp_path)
 
         # Run pose estimation
+        print(f"[SAMPLER] Running pose estimation on {len(climbing_indices)} frames (this may take a while)...")
         try:
             estimator = PoseEstimator()
             pose_frames = estimator.process_paths(
                 temp_frame_paths,
-                timestamps=[temp_frames[idx][2] for idx in high_motion_indices],
+                timestamps=[temp_frames[idx][2] for idx in climbing_indices],
             )
             estimator.close()
+            print(f"[SAMPLER] Pose estimation complete: {len(pose_frames)} poses detected")
         except Exception as exc:
             LOGGER.warning("Pose estimation failed: %s. Falling back to motion-only selection.", exc)
+            print(f"[SAMPLER] Warning: Pose estimation failed, falling back to motion-only selection")
             use_pose_similarity = False
 
         # Clean up temp files
@@ -270,15 +309,15 @@ def extract_frames_with_motion(
 
     # Step 5: Select frames based on pose similarity
     if use_pose_similarity and pose_frames:
-        selected_indices.append(high_motion_indices[0])  # Always include first frame
+        selected_indices.append(climbing_indices[0])  # Always include first frame
 
-        for i in range(1, len(high_motion_indices)):
-            current_idx = high_motion_indices[i]
+        for i in range(1, len(climbing_indices)):
+            current_idx = climbing_indices[i]
             prev_selected_idx = selected_indices[-1]
 
             # Find corresponding pose frames
             current_pose_idx = i
-            prev_pose_idx = high_motion_indices.index(prev_selected_idx) if prev_selected_idx in high_motion_indices else None
+            prev_pose_idx = climbing_indices.index(prev_selected_idx) if prev_selected_idx in climbing_indices else None
 
             if prev_pose_idx is not None and current_pose_idx < len(pose_frames) and prev_pose_idx < len(pose_frames):
                 similarity = compute_pose_similarity(pose_frames[prev_pose_idx], pose_frames[current_pose_idx])
@@ -288,20 +327,11 @@ def extract_frames_with_motion(
                     # Check minimum interval
                     if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
                         selected_indices.append(current_idx)
-                # Also check motion score as secondary criterion
-                elif motion_scores[current_idx] >= motion_threshold * 2.0:
-                    if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
-                        selected_indices.append(current_idx)
-            else:
-                # Fallback: use motion score
-                if motion_scores[current_idx] >= motion_threshold:
-                    if len(selected_indices) == 0 or (current_idx - selected_indices[-1]) >= min_frame_interval:
-                        selected_indices.append(current_idx)
     else:
-        # Motion-only selection
-        selected_indices.append(high_motion_indices[0])  # Always include first frame
+        # Motion-only selection (climbing frames only)
+        selected_indices.append(climbing_indices[0])  # Always include first frame
 
-        for idx in high_motion_indices[1:]:
+        for idx in climbing_indices[1:]:
             # Check minimum interval
             if len(selected_indices) == 0 or (idx - selected_indices[-1]) >= min_frame_interval:
                 selected_indices.append(idx)
@@ -316,6 +346,426 @@ def extract_frames_with_motion(
     selected_indices = sorted(set(selected_indices))
 
     LOGGER.info("Selected %d frames after filtering", len(selected_indices))
+    print(f"[SAMPLER] Selected {len(selected_indices)} diverse frames, saving to disk...")
+
+    # Step 5.5: Save ALL frames to all_frames/ directory if requested
+    if save_all_frames:
+        all_frames_dir = ensure_directory(frame_dir / "all_frames")
+        print(f"[SAMPLER] Saving all {len(temp_frames)} frames to {all_frames_dir}...")
+        
+        for frame_idx, (_, frame, timestamp) in enumerate(temp_frames):
+            # Use original frame index to maintain correspondence with selected_frames
+            frame_filename = f"{source_path.stem}_frame_{frame_idx:06d}.jpg"
+            frame_path = all_frames_dir / frame_filename
+            cv2.imwrite(str(frame_path), frame)
+        
+        # Create empty human_selected_frames/ directory for manual selection
+        human_selected_frames_dir = ensure_directory(frame_dir / "human_selected_frames")
+        print(f"[SAMPLER] Created empty directory for manual frame selection: {human_selected_frames_dir}")
+        
+        # Detect holds from first frame and save hold_positions.json
+        try:
+            print(f"[SAMPLER] Detecting holds from first frame...")
+            _detect_and_save_holds(all_frames_dir, frame_dir)
+        except Exception as e:
+            print(f"[SAMPLER] Warning: Hold detection failed: {e}")
+
+    # Step 6: Save selected frames (auto-selected by algorithm) to selected_frames/
+    selected_frames_dir = ensure_directory(frame_dir / "selected_frames")
+    saved_paths: list[Path] = []
+    manifest_records: list[dict[str, object]] = []
+
+    for selection_order, orig_idx in enumerate(selected_indices):
+        if orig_idx >= len(temp_frames):
+            continue
+
+        _, frame, timestamp = temp_frames[orig_idx]
+        # Use original frame index to maintain correspondence with all_frames/
+        frame_filename = f"{source_path.stem}_frame_{orig_idx:06d}.jpg"
+        frame_path = selected_frames_dir / frame_filename
+        cv2.imwrite(str(frame_path), frame)
+        saved_paths.append(frame_path)
+
+        manifest_records.append(
+            {
+                "frame_index": int(orig_idx),
+                "selection_order": int(selection_order),
+                "timestamp_seconds": float(timestamp),
+                "relative_path": f"selected_frames/{frame_filename}",
+                "motion_score": float(motion_scores[orig_idx]) if orig_idx < len(motion_scores) else 0.0,
+            }
+        )
+
+    manifest_path: Optional[Path] = None
+    if write_manifest:
+        manifest_path = frame_dir / "manifest.json"
+        # Calculate approximate interval from saved frames
+        if len(saved_paths) > 1 and fps > 0:
+            approx_interval = (temp_frames[selected_indices[-1]][2] - temp_frames[selected_indices[0]][2]) / max(1, len(saved_paths) - 1)
+        else:
+            approx_interval = initial_sampling_rate
+        
+        manifest_payload = {
+            "video": str(source_path),
+            "fps": fps,
+            "interval_seconds": approx_interval,
+            "extraction_method": "motion_pose" if use_pose_similarity else "motion",
+            "motion_threshold": motion_threshold,
+            "similarity_threshold": similarity_threshold if use_pose_similarity else None,
+            "min_frame_interval": min_frame_interval,
+            "total_frames": frame_idx,
+            "saved_frames": len(saved_paths),
+            "frames": manifest_records,
+        }
+        manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+
+    LOGGER.info(
+        "Motion-based extraction complete: saved=%d frames (directory=%s)",
+        len(saved_paths),
+        frame_dir,
+    )
+    print(f"[SAMPLER] Extraction complete! Saved {len(saved_paths)} frames to {frame_dir}")
+
+    return FrameExtractionResult(
+        video_path=source_path,
+        frame_directory=frame_dir,
+        manifest_path=manifest_path,
+        fps=fps,
+        interval_seconds=initial_sampling_rate,  # Approximate
+        total_frames=frame_idx,
+        saved_frames=len(saved_paths),
+        frame_paths=saved_paths,
+    )
+
+
+def compute_limb_velocity(pose_frames: List[PoseFrame], limb_names: List[str] = None) -> dict[str, List[float]]:
+    """Compute velocity of specific limbs across pose frames.
+    
+    Velocity spike = contact/release moment.
+    Low velocity = holding position (matched on hold).
+    
+    Args:
+        pose_frames: List of consecutive pose frames
+        limb_names: Limb keypoints to track (default: hands and feet)
+    
+    Returns:
+        Dict mapping limb name to velocity values for each frame
+    """
+    if limb_names is None:
+        # Track hands and feet for hold contact detection
+        limb_names = [
+            "left_wrist", "right_wrist",
+            "left_ankle", "right_ankle",
+        ]
+    
+    velocities: dict[str, List[float]] = {name: [] for name in limb_names}
+    
+    for i in range(len(pose_frames)):
+        if i == 0:
+            # First frame has zero velocity
+            for name in limb_names:
+                velocities[name].append(0.0)
+            continue
+        
+        prev_frame = pose_frames[i - 1]
+        curr_frame = pose_frames[i]
+        
+        if not prev_frame.landmarks or not curr_frame.landmarks:
+            for name in limb_names:
+                velocities[name].append(0.0)
+            continue
+        
+        prev_landmarks = {lm.name: lm for lm in prev_frame.landmarks}
+        curr_landmarks = {lm.name: lm for lm in curr_frame.landmarks}
+        
+        for limb_name in limb_names:
+            if limb_name not in prev_landmarks or limb_name not in curr_landmarks:
+                velocities[limb_name].append(0.0)
+                continue
+            
+            prev_lm = prev_landmarks[limb_name]
+            curr_lm = curr_landmarks[limb_name]
+            
+            # Only compute velocity for visible landmarks
+            if prev_lm.visibility < 0.5 or curr_lm.visibility < 0.5:
+                velocities[limb_name].append(0.0)
+                continue
+            
+            # Euclidean distance between frames (normalized coordinates)
+            dx = curr_lm.x - prev_lm.x
+            dy = curr_lm.y - prev_lm.y
+            velocity = float(np.sqrt(dx**2 + dy**2))
+            
+            velocities[limb_name].append(velocity)
+    
+    return velocities
+
+
+def detect_contact_moments(
+    velocities: dict[str, List[float]],
+    *,
+    velocity_spike_threshold: float = 0.05,
+    velocity_low_threshold: float = 0.01,
+    hold_duration_frames: int = 3,
+) -> List[int]:
+    """Detect key contact moments from limb velocity data.
+    
+    Key moments:
+    1. Velocity spike → low = limb reaches and grabs hold
+    2. Sustained low velocity = matched position on hold
+    3. Low → spike = limb releases from hold
+    
+    Args:
+        velocities: Dict of limb velocities from compute_limb_velocity()
+        velocity_spike_threshold: Threshold for detecting movement
+        velocity_low_threshold: Threshold for detecting hold contact
+        hold_duration_frames: Minimum frames to consider a "hold"
+    
+    Returns:
+        List of frame indices representing key contact moments
+    """
+    if not velocities:
+        return []
+    
+    # Aggregate velocity across all limbs (max velocity at each frame)
+    num_frames = len(next(iter(velocities.values())))
+    aggregated_velocity = []
+    
+    for frame_idx in range(num_frames):
+        max_velocity = max(
+            velocities[limb][frame_idx]
+            for limb in velocities
+            if frame_idx < len(velocities[limb])
+        )
+        aggregated_velocity.append(max_velocity)
+    
+    contact_moments = []
+    in_hold = False
+    hold_start = 0
+    
+    for i in range(1, len(aggregated_velocity)):
+        prev_vel = aggregated_velocity[i - 1]
+        curr_vel = aggregated_velocity[i]
+        
+        # Detect contact: high velocity → low velocity
+        if prev_vel > velocity_spike_threshold and curr_vel < velocity_low_threshold:
+            contact_moments.append(i)
+            in_hold = True
+            hold_start = i
+        
+        # Detect release: low velocity → high velocity
+        elif in_hold and prev_vel < velocity_low_threshold and curr_vel > velocity_spike_threshold:
+            # Check if hold was sustained long enough
+            hold_duration = i - hold_start
+            if hold_duration >= hold_duration_frames:
+                contact_moments.append(i)  # Release moment
+            in_hold = False
+        
+        # Detect matched position: sustained low velocity
+        elif in_hold and (i - hold_start) == hold_duration_frames // 2:
+            contact_moments.append(i)  # Mid-hold (matched position)
+    
+    return sorted(set(contact_moments))
+
+
+def extract_frames_with_contact_detection(
+    video_path: Path | str,
+    *,
+    output_root: Path | str = Path("data") / "frames",
+    motion_threshold: float = 5.0,
+    velocity_spike_threshold: float = 0.05,
+    velocity_low_threshold: float = 0.01,
+    hold_duration_frames: int = 3,
+    max_frames: int = 30,
+    initial_sampling_rate: float = 0.1,
+    write_manifest: bool = True,
+    overwrite: bool = False,
+) -> FrameExtractionResult:
+    """Extract frames based on hold contact detection.
+    
+    This is an enhanced version of extract_frames_with_motion() that detects
+    key climbing moments:
+    1. Limb reaches and contacts hold
+    2. Matched position on hold
+    3. Limb releases from hold
+    
+    Algorithm:
+    1. Extract candidate frames at high rate (initial_sampling_rate)
+    2. Filter out walking segments using motion detection
+    3. Run pose estimation on climbing frames
+    4. Compute limb velocities (hands and feet)
+    5. Detect contact/release moments from velocity changes
+    6. Select frames representing key climbing moments
+    
+    Args:
+        video_path: Path to video file
+        output_root: Directory to save frames
+        motion_threshold: Minimum motion score to filter walking segments
+        velocity_spike_threshold: Threshold for detecting limb movement
+        velocity_low_threshold: Threshold for detecting hold contact
+        hold_duration_frames: Minimum frames to consider a stable hold
+        max_frames: Maximum number of frames to extract
+        initial_sampling_rate: Initial frame sampling rate in seconds
+        write_manifest: Write manifest.json file
+        overwrite: Overwrite existing frames
+    
+    Returns:
+        FrameExtractionResult with selected frames at key contact moments
+    """
+    source_path = Path(video_path).expanduser().resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Video file not found: {source_path}")
+
+    frames_root = ensure_directory(output_root)
+    frame_dir = ensure_directory(frames_root / source_path.stem)
+
+    if overwrite:
+        for existing in frame_dir.glob("*.jpg"):
+            existing.unlink()
+
+    capture = cv2.VideoCapture(str(source_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"CV2 failed to open video file: {source_path}")
+
+    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    initial_frame_interval = max(int(round(fps * initial_sampling_rate)), 1)
+
+    LOGGER.info(
+        "Starting contact-based frame extraction: video=%s, fps=%.2f, max_frames=%d",
+        source_path,
+        fps,
+        max_frames,
+    )
+
+    # Step 1: Extract frames at high rate
+    temp_frames: list[tuple[int, np.ndarray, float]] = []
+    frame_idx = 0
+
+    while True:
+        success, frame = capture.read()
+        if not success:
+            break
+
+        if frame_idx % initial_frame_interval == 0:
+            timestamp = frame_idx / fps if fps > 0 else frame_idx * initial_sampling_rate
+            temp_frames.append((frame_idx, frame.copy(), timestamp))
+
+        frame_idx += 1
+
+    capture.release()
+
+    if not temp_frames:
+        raise ValueError("No frames extracted from video")
+
+    LOGGER.info("Extracted %d candidate frames at high rate", len(temp_frames))
+
+    # Step 2: Filter out walking segments (high motion = walking)
+    motion_scores: list[float] = [0.0]
+    prev_frame: Optional[np.ndarray] = None
+
+    for idx, (_, frame, _) in enumerate(temp_frames):
+        if idx == 0:
+            prev_frame = frame
+            continue
+
+        if prev_frame is not None:
+            motion_score, _ = compute_optical_flow(prev_frame, frame)
+            motion_scores.append(motion_score)
+        else:
+            motion_scores.append(0.0)
+
+        prev_frame = frame
+
+    climbing_indices = [
+        idx for idx, score in enumerate(motion_scores) if score < motion_threshold
+    ]
+
+    if not climbing_indices:
+        LOGGER.warning("No climbing frames detected. Using all frames.")
+        climbing_indices = list(range(len(temp_frames)))
+    else:
+        LOGGER.info(
+            "Found %d climbing frames (out of %d total)",
+            len(climbing_indices),
+            len(temp_frames),
+        )
+
+    # Step 3: Run pose estimation on climbing frames
+    temp_frame_dir = frame_dir / "temp_poses"
+    temp_frame_dir.mkdir(exist_ok=True)
+    temp_frame_paths: list[Path] = []
+
+    for idx in climbing_indices:
+        frame_idx_val, frame, timestamp = temp_frames[idx]
+        temp_path = temp_frame_dir / f"temp_{idx:06d}.jpg"
+        cv2.imwrite(str(temp_path), frame)
+        temp_frame_paths.append(temp_path)
+
+    try:
+        estimator = PoseEstimator()
+        pose_frames = estimator.process_paths(
+            temp_frame_paths,
+            timestamps=[temp_frames[idx][2] for idx in climbing_indices],
+        )
+        estimator.close()
+        LOGGER.info("Pose estimation complete: %d poses", len(pose_frames))
+    except Exception as exc:
+        LOGGER.error("Pose estimation failed: %s", exc)
+        # Fallback to motion-only selection
+        selected_indices = climbing_indices[::max(1, len(climbing_indices) // max_frames)][:max_frames]
+        pose_frames = []
+    finally:
+        # Clean up temp files
+        for temp_path in temp_frame_paths:
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+        try:
+            temp_frame_dir.rmdir()
+        except Exception:
+            pass
+
+    # Step 4: Compute limb velocities
+    if pose_frames:
+        velocities = compute_limb_velocity(pose_frames)
+        LOGGER.info("Computed velocities for %d limbs", len(velocities))
+
+        # Step 5: Detect contact moments
+        contact_frame_indices = detect_contact_moments(
+            velocities,
+            velocity_spike_threshold=velocity_spike_threshold,
+            velocity_low_threshold=velocity_low_threshold,
+            hold_duration_frames=hold_duration_frames,
+        )
+
+        if contact_frame_indices:
+            # Map back to original frame indices
+            selected_indices = [climbing_indices[i] for i in contact_frame_indices if i < len(climbing_indices)]
+            LOGGER.info("Detected %d contact moments", len(selected_indices))
+        else:
+            # Fallback: evenly spaced frames
+            LOGGER.warning("No contact moments detected. Using evenly spaced frames.")
+            step = max(1, len(climbing_indices) // max_frames)
+            selected_indices = climbing_indices[::step][:max_frames]
+    else:
+        # No pose estimation, use evenly spaced frames
+        step = max(1, len(climbing_indices) // max_frames)
+        selected_indices = climbing_indices[::step][:max_frames]
+
+    # Limit to max_frames
+    if len(selected_indices) > max_frames:
+        # Sample evenly from contact moments
+        step = len(selected_indices) // max_frames
+        selected_indices = selected_indices[::step][:max_frames]
+
+    # Ensure we have at least a few frames
+    if len(selected_indices) < 3:
+        step = max(1, len(temp_frames) // 3)
+        selected_indices = list(range(0, len(temp_frames), step))[:3]
+
+    selected_indices = sorted(set(selected_indices))
+    LOGGER.info("Selected %d frames at contact moments", len(selected_indices))
 
     # Step 6: Save selected frames
     saved_paths: list[Path] = []
@@ -338,19 +788,30 @@ def extract_frames_with_motion(
                 "timestamp_seconds": float(timestamp),
                 "relative_path": frame_filename,
                 "motion_score": float(motion_scores[orig_idx]) if orig_idx < len(motion_scores) else 0.0,
+                "is_contact_moment": True,
             }
         )
 
     manifest_path: Optional[Path] = None
     if write_manifest:
         manifest_path = frame_dir / "manifest.json"
+        approx_interval = (
+            (temp_frames[selected_indices[-1]][2] - temp_frames[selected_indices[0]][2]) 
+            / max(1, len(saved_paths) - 1)
+            if len(saved_paths) > 1 and fps > 0
+            else initial_sampling_rate
+        )
+        
         manifest_payload = {
             "video": str(source_path),
             "fps": fps,
-            "extraction_method": "motion_pose" if use_pose_similarity else "motion",
+            "interval_seconds": approx_interval,
+            "extraction_method": "contact_detection",
             "motion_threshold": motion_threshold,
-            "similarity_threshold": similarity_threshold if use_pose_similarity else None,
-            "min_frame_interval": min_frame_interval,
+            "velocity_spike_threshold": velocity_spike_threshold,
+            "velocity_low_threshold": velocity_low_threshold,
+            "hold_duration_frames": hold_duration_frames,
+            "max_frames": max_frames,
             "total_frames": frame_idx,
             "saved_frames": len(saved_paths),
             "frames": manifest_records,
@@ -358,7 +819,7 @@ def extract_frames_with_motion(
         manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
 
     LOGGER.info(
-        "Motion-based extraction complete: saved=%d frames (directory=%s)",
+        "Contact-based extraction complete: saved=%d frames (directory=%s)",
         len(saved_paths),
         frame_dir,
     )
@@ -368,16 +829,51 @@ def extract_frames_with_motion(
         frame_directory=frame_dir,
         manifest_path=manifest_path,
         fps=fps,
-        interval_seconds=initial_sampling_rate,  # Approximate
+        interval_seconds=approx_interval if len(saved_paths) > 1 else initial_sampling_rate,
         total_frames=frame_idx,
         saved_frames=len(saved_paths),
         frame_paths=saved_paths,
     )
 
 
+def _detect_and_save_holds(all_frames_dir: Path, output_dir: Path) -> None:
+    """Detect holds from first frame and save to hold_positions.json.
+    
+    Args:
+        all_frames_dir: Directory containing all_frames
+        output_dir: Directory to save hold_positions.json
+    """
+    # Get first frame
+    frame_files = sorted(all_frames_dir.glob('*.jpg'))
+    if not frame_files:
+        raise FileNotFoundError(f"No frames found in {all_frames_dir}")
+    
+    first_frame_path = frame_files[0]
+    
+    # TODO: Integrate with YOLO hold detection
+    # For now, create dummy hold positions
+    holds_data = {
+        'holds': [
+            {'id': 0, 'x': 0.3, 'y': 0.4, 'w': 0.05, 'h': 0.06},
+            {'id': 1, 'x': 0.5, 'y': 0.5, 'w': 0.04, 'h': 0.05},
+            {'id': 2, 'x': 0.7, 'y': 0.6, 'w': 0.06, 'h': 0.07},
+        ]
+    }
+    
+    # Save hold_positions.json
+    hold_positions_path = output_dir / 'hold_positions.json'
+    with open(hold_positions_path, 'w') as f:
+        json.dump(holds_data, f, indent=2)
+    
+    print(f"[SAMPLER] Saved {len(holds_data['holds'])} holds to {hold_positions_path}")
+
+
 __all__ = [
     "compute_optical_flow",
     "compute_pose_similarity",
+    "compute_limb_velocity",
+    "detect_contact_moments",
     "extract_frames_with_motion",
+    "extract_frames_with_contact_detection",
 ]
 

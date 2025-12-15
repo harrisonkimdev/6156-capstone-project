@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Efficiency & Recommendations - BetaMove</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <style>
+        /* Climber Profile Form */
+        .climber-profile {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            padding: 16px;
+            background: #1e1e1e;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 600px) {
+            .climber-profile {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .climber-profile .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .climber-profile label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .climber-profile input {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: #fff;
+        }
+
+        .efficiency-score-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 16px 0;
+            text-align: center;
+        }
+
+        .efficiency-score-display .score-value {
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            margin: 8px 0;
+        }
+
+        .efficiency-score-display .score-label {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.9);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin: 16px 0;
+        }
+
+        .metric-card {
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+        }
+
+        .metric-card .metric-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .metric-card .metric-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="topnav">
+        <div class="inner">
+            <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+                    alt="BetaMove logo"><span>BetaMove</span></a>
+            <nav>
+                <a href="/">Analysis</a>
+                <a href="/training">Training</a>
+                <span style="color: #666; margin: 0 12px;">|</span>
+                <a href="/detection">Detection Model Training</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        <section class="card">
+            <div class="card-header">
+                <h2>Efficiency & Recommendations</h2>
+                <button id="analysis-refresh" type="button">Refresh</button>
+            </div>
+
+            <!-- Climber Profile Form -->
+            <div class="climber-profile" id="climber-profile-form">
+                <div class="form-group">
+                    <label for="climber-height">Height (cm)</label>
+                    <input type="number" id="climber-height" placeholder="e.g., 175" min="100" max="250" step="1"
+                        value="175">
+                </div>
+                <div class="form-group">
+                    <label for="climber-wingspan">Wingspan (cm)</label>
+                    <input type="number" id="climber-wingspan" placeholder="e.g., 180" min="100" max="300" step="1"
+                        value="180">
+                </div>
+                <div class="form-group">
+                    <label for="climber-flexibility">Flexibility (0-1)</label>
+                    <input type="range" id="climber-flexibility" min="0" max="1" step="0.1" value="0.5">
+                    <span id="flexibility-value" style="color: #888; font-size: 11px;">0.5 (Average)</span>
+                </div>
+            </div>
+            <p class="hint" style="margin-bottom: 16px;">
+                Set your physical characteristics to get personalized hold recommendations based on your reach and
+                flexibility.
+            </p>
+
+            <div id="efficiency-block">
+                <!-- Efficiency Score Display -->
+                <div class="efficiency-score-display">
+                    <div class="score-label">Overall Efficiency Score</div>
+                    <div class="score-value">0.78</div>
+                    <div style="font-size: 12px; color: rgba(255, 255, 255, 0.8); margin-top: 8px;">
+                        Personalized for: 175cm height, 180cm wingspan, 50% flexibility
+                    </div>
+                </div>
+
+                <!-- Metrics Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Stability</div>
+                        <div class="metric-value">0.85</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Path Efficiency</div>
+                        <div class="metric-value">0.72</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Support Quality</div>
+                        <div class="metric-value">0.90</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Wall Alignment</div>
+                        <div class="metric-value">0.68</div>
+                    </div>
+                </div>
+
+                <h4 style="color: #fff; margin: 16px 0 8px 0; font-size: 14px;">Recommended Next Holds</h4>
+                <div class="table-wrapper">
+                    <table id="next-holds-table" class="compact">
+                        <thead>
+                            <tr>
+                                <th>Hold ID</th>
+                                <th>Type</th>
+                                <th>Position</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>H-042</td>
+                                <td>Jug</td>
+                                <td>(0.45, 0.32)</td>
+                                <td>92%</td>
+                            </tr>
+                            <tr>
+                                <td>H-038</td>
+                                <td>Crimp</td>
+                                <td>(0.52, 0.28)</td>
+                                <td>87%</td>
+                            </tr>
+                            <tr>
+                                <td>H-051</td>
+                                <td>Sloper</td>
+                                <td>(0.38, 0.35)</td>
+                                <td>81%</td>
+                            </tr>
+                            <tr>
+                                <td>H-029</td>
+                                <td>Pinch</td>
+                                <td>(0.55, 0.31)</td>
+                                <td>76%</td>
+                            </tr>
+                            <tr>
+                                <td>H-033</td>
+                                <td>Jug</td>
+                                <td>(0.41, 0.27)</td>
+                                <td>73%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Additional Info -->
+                <div style="margin-top: 20px; padding: 16px; background: #1e1e1e; border-radius: 8px;">
+                    <h4 style="color: #fff; margin: 0 0 12px 0; font-size: 14px;">Analysis Summary</h4>
+                    <div style="color: #888; font-size: 12px; line-height: 1.6;">
+                        <p style="margin: 8px 0;">
+                            <strong>Wall angle:</strong> 15.2° | <strong>Total holds:</strong> 47 | <strong>Current
+                                frame:</strong> 342/1200
+                        </p>
+                        <p style="margin: 8px 0;">
+                            Based on your physical profile, the system recommends holds that are within your optimal
+                            reach range
+                            and match your flexibility level. The confidence scores reflect how well each hold aligns
+                            with your
+                            climbing style and current body position.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/feedback-widget.js"></script>
+    <script>
+        // Flexibility slider update
+        const flexibilitySlider = document.getElementById('climber-flexibility');
+        const flexibilityValue = document.getElementById('flexibility-value');
+
+        function updateFlexibilityLabel(value) {
+            const v = parseFloat(value);
+            let text = v.toFixed(1);
+            if (v < 0.3) text += ' (Low)';
+            else if (v > 0.7) text += ' (High)';
+            else text += ' (Average)';
+            flexibilityValue.textContent = text;
+        }
+
+        flexibilitySlider.addEventListener('input', (e) => {
+            updateFlexibilityLabel(e.target.value);
+        });
+
+        // Refresh button
+        const refreshButton = document.getElementById('analysis-refresh');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', () => {
+                // In a real implementation, this would reload data
+                console.log('Refresh clicked');
+                // For demo, just show a brief message
+                const originalText = refreshButton.textContent;
+                refreshButton.textContent = 'Refreshing...';
+                setTimeout(() => {
+                    refreshButton.textContent = originalText;
+                }, 1000);
+            });
+        }
+
+        // Save climber profile to localStorage
+        function saveClimberProfile() {
+            const height = document.getElementById('climber-height').value;
+            const wingspan = document.getElementById('climber-wingspan').value;
+            const flexibility = document.getElementById('climber-flexibility').value;
+
+            if (height) localStorage.setItem('climber_height', height);
+            if (wingspan) localStorage.setItem('climber_wingspan', wingspan);
+            if (flexibility) localStorage.setItem('climber_flexibility', flexibility);
+        }
+
+        function loadClimberProfile() {
+            const height = localStorage.getItem('climber_height');
+            const wingspan = localStorage.getItem('climber_wingspan');
+            const flexibility = localStorage.getItem('climber_flexibility');
+
+            if (height) document.getElementById('climber-height').value = height;
+            if (wingspan) document.getElementById('climber-wingspan').value = wingspan;
+            if (flexibility) {
+                document.getElementById('climber-flexibility').value = flexibility;
+                updateFlexibilityLabel(flexibility);
+            }
+        }
+
+        // Load profile on page load
+        loadClimberProfile();
+
+        // Save on change
+        document.getElementById('climber-height').addEventListener('change', saveClimberProfile);
+        document.getElementById('climber-wingspan').addEventListener('change', saveClimberProfile);
+        document.getElementById('climber-flexibility').addEventListener('input', (e) => {
+            updateFlexibilityLabel(e.target.value);
+            saveClimberProfile();
+        });
+    </script>
+</body>
+
+</html>

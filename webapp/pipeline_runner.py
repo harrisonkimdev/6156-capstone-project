@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable, List, Tuple
@@ -16,7 +17,6 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from pose_ai.data import (  # type: ignore  # pylint: disable=wrong-import-position
-    extract_frames_every_n_seconds,
     extract_frames_with_motion,
     iter_video_files,
 )
@@ -56,30 +56,95 @@ def _to_repo_url(path: Path) -> str | None:
     return f"/repo/{relative.as_posix()}"
 
 
-def _maybe_upload_raw_video(job: PipelineJob, video_path: Path, log: Callable[[str], None]) -> None:
-    if GCS_MANAGER is None:
-        return
-    try:
-        uri = GCS_MANAGER.upload_raw_video(video_path, upload_id=job.id)
-    except Exception as exc:  # pragma: no cover - depends on cloud credentials
-        log(f"GCS video upload skipped: {exc}")
-        return
-    if uri:
-        job.add_artifact("raw_videos", uri)
-        log(f"Uploaded raw video to {uri}")
+def _upload_raw_video(job: PipelineJob, video_path: Path, log: Callable[[str], None]) -> None:
+    """Upload raw video to GCS. Required operation - will raise exception on failure."""
+    uri = GCS_MANAGER.upload_raw_video(video_path, upload_id=job.id)
+    job.add_artifact("raw_videos", uri)
+    log(f"Uploaded raw video to {uri}")
 
 
-def _maybe_upload_frame_dir(job: PipelineJob, frame_dir: Path, log: Callable[[str], None]) -> None:
-    if GCS_MANAGER is None:
-        return
+def _upload_frame_directory(job: PipelineJob, frame_dir: Path, log: Callable[[str], None]) -> None:
+    """Upload frame directory to GCS. Required operation - will raise exception on failure."""
+    uri = GCS_MANAGER.upload_frame_directory(frame_dir, job_id=job.id)
+    job.add_artifact("frames", uri)
+    log(f"Uploaded frames to {uri}")
+
+
+def apply_frame_selector_model(
+    manifest_path: Path,
+    frame_selector_model_path: Path,
+    threshold: float = 0.5,
+    log: Callable[[str], None] = print,
+) -> Path:
+    """Apply BiLSTM model to select key frames and filter manifest.
+    
+    Args:
+        manifest_path: Path to original manifest.json
+        frame_selector_model_path: Path to trained BiLSTM model
+        threshold: Key frame prediction threshold
+        log: Logging function
+    
+    Returns:
+        Filtered manifest path (may differ from original)
+    """
     try:
-        uri = GCS_MANAGER.upload_frame_directory(frame_dir, job_id=job.id)
-    except Exception as exc:  # pragma: no cover
-        log(f"GCS frame upload skipped: {exc}")
-        return
-    if uri:
-        job.add_artifact("frames", uri)
-        log(f"Uploaded frames to {uri}")
+        from pose_ai.service.frame_selector_service import predict_key_frames
+        
+        workflow_dir = manifest_path.parent
+        
+        # Check all_frames/ directory
+        all_frames_dir = workflow_dir / 'all_frames'
+        if not all_frames_dir.exists():
+            log("Warning: all_frames/ directory not found, skipping frame selector")
+            return manifest_path
+        
+        # Predict key frames using BiLSTM
+        log("Applying BiLSTM frame selector model...")
+        results = predict_key_frames(
+            workflow_dir=workflow_dir,
+            model_path=frame_selector_model_path,
+            threshold=threshold,
+            fps=30.0,  # TODO: Extract from manifest or pass as parameter
+        )
+        
+        # Get frame names from selected_frames/ directory
+        selected_frames_dir = workflow_dir / 'selected_frames'
+        if not selected_frames_dir.exists():
+            log("Warning: selected_frames/ directory not found after prediction")
+            return manifest_path
+        
+        selected_frame_files = {f.name for f in selected_frames_dir.glob("*.jpg")}
+        log(f"BiLSTM selected {len(selected_frame_files)} key frames")
+        
+        # Update manifest.json: filter only frames in selected_frames
+        with open(manifest_path, 'r') as f:
+            manifest_data = json.load(f)
+        
+        original_frame_count = len(manifest_data.get('frames', []))
+        
+        # Filter only frames in selected_frames
+        filtered_frames = [
+            frame for frame in manifest_data.get('frames', [])
+            if Path(frame['image_path']).name in selected_frame_files
+        ]
+        
+        if not filtered_frames:
+            log("Warning: No frames matched after filtering, using original frames")
+            return manifest_path
+        
+        manifest_data['frames'] = filtered_frames
+        
+        # Save updated manifest
+        updated_manifest_path = workflow_dir / 'manifest_filtered.json'
+        with open(updated_manifest_path, 'w') as f:
+            json.dump(manifest_data, f, indent=2)
+        
+        log(f"Filtered manifest: {len(filtered_frames)} key frames (from {original_frame_count} total)")
+        return updated_manifest_path
+        
+    except Exception as exc:
+        log(f"Frame selector model failed: {exc}, using original frames")
+        return manifest_path
 
 
 def run_pipeline_stage(
@@ -87,8 +152,6 @@ def run_pipeline_stage(
     job: PipelineJob,
     video_dir: Path,
     output_dir: Path,
-    interval: float,
-    skip_visuals: bool,
     yolo_options: dict[str, object] | None = None,
     segmentation_options: dict[str, object] | None = None,
     frame_extraction_options: dict[str, object] | None = None,
@@ -111,49 +174,39 @@ def run_pipeline_stage(
 
     # Determine frame extraction method
     extraction_config = frame_extraction_options or {}
-    extraction_method = str(extraction_config.get("method", "interval")).lower()
+    extraction_method = str(extraction_config.get("method", "motion")).lower()
 
     manifests: list[Path] = []
     for index, video_path in enumerate(iter_video_files(video_dir)):
         log(f"[{index + 1}] Extracting frames from {video_path.name} (method: {extraction_method})")
         
-        if extraction_method in ("motion", "motion_pose"):
-            # Use advanced motion-based extraction
-            result = extract_frames_with_motion(
-                video_path,
-                output_root=output_dir,
-                motion_threshold=float(extraction_config.get("motion_threshold", 5.0)),
-                similarity_threshold=float(extraction_config.get("similarity_threshold", 0.8)),
-                min_frame_interval=int(extraction_config.get("min_frame_interval", 5)),
-                use_optical_flow=bool(extraction_config.get("use_optical_flow", True)),
-                use_pose_similarity=bool(extraction_config.get("use_pose_similarity", True)) and extraction_method == "motion_pose",
-                initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
-                write_manifest=True,
-                overwrite=False,
-            )
-        else:
-            # Use interval-based extraction (default)
-            result = extract_frames_every_n_seconds(
-                video_path,
-                interval_seconds=interval,
-                output_root=output_dir,
-                write_manifest=True,
-                overwrite=False,
-            )
+        # Use advanced motion-based extraction
+        # save_all_frames=True: Save all frames to all_frames/ for BiLSTM analysis
+        result = extract_frames_with_motion(
+            video_path,
+            output_root=output_dir,
+            motion_threshold=float(extraction_config.get("motion_threshold", 5.0)),
+            similarity_threshold=float(extraction_config.get("similarity_threshold", 0.8)),
+            min_frame_interval=int(extraction_config.get("min_frame_interval", 5)),
+            use_optical_flow=bool(extraction_config.get("use_optical_flow", True)),
+            use_pose_similarity=bool(extraction_config.get("use_pose_similarity", True)) and extraction_method == "motion_pose",
+            initial_sampling_rate=float(extraction_config.get("initial_sampling_rate", 0.1)),
+            write_manifest=True,
+            overwrite=False,
+            save_all_frames=True,  # Production: Save all frames for BiLSTM frame selector
+        )
         
         if result.manifest_path is None:
             raise RuntimeError(f"Manifest not written for {video_path}")
         log(f"Saved {result.saved_frames} frames to {result.frame_directory}")
-        _maybe_upload_raw_video(job, result.video_path, log)
+        _upload_raw_video(job, result.video_path, log)
         manifest_path = result.manifest_path
         
         # Run segmentation if enabled
         seg_config = segmentation_options or {}
-        seg_method = str(seg_config.get("method", "yolo")).lower()
-        if bool(seg_config.get("enabled", False)) and seg_method != "none":
+        if bool(seg_config.get("enabled", False)):
             try:
-                from pose_ai.segmentation import (  # type: ignore
-                    HsvSegmentationModel,
+                from pose_ai.segmentation.yolo_segmentation import (  # type: ignore
                     YoloSegmentationModel,
                     export_segmentation_masks,
                     extract_hold_colors,
@@ -161,33 +214,22 @@ def run_pipeline_stage(
                     export_routes_json,
                 )
                 
+                log("Running YOLO segmentation...")
                 frame_dir = manifest_path.parent
                 image_paths = sorted([p for p in frame_dir.glob("*.jpg")])
                 
                 if image_paths:
-                    if seg_method == "hsv":
-                        log("Running HSV segmentation...")
-                        seg_model = HsvSegmentationModel(
-                            hue_tolerance=int(seg_config.get("hsv_hue_tolerance", 5)),
-                            sat_tolerance=int(seg_config.get("hsv_sat_tolerance", 50)),
-                            val_tolerance=int(seg_config.get("hsv_val_tolerance", 40)),
-                        )
-                        seg_results = seg_model.batch_segment_frames(
-                            image_paths,
-                            target_classes=["wall", "hold"],
-                        )
-                    else:  # yolo
-                        log("Running YOLO segmentation...")
-                        seg_model = YoloSegmentationModel(
-                            model_name=str(seg_config.get("model_name", "yolov8n-seg.pt")),
-                            device=yolo_config.get("device") if yolo_config else None,
-                            imgsz=int(yolo_config.get("imgsz", 640)) if yolo_config else 640,
-                        )
-                        seg_results = seg_model.batch_segment_frames(
-                            image_paths,
-                            conf_threshold=float(yolo_config.get("min_confidence", 0.25)) if yolo_config else 0.25,
-                            target_classes=["wall", "hold", "climber", "person"],
-                        )
+                    seg_model = YoloSegmentationModel(
+                        model_name=str(seg_config.get("model_name", "yolov8n-seg.pt")),
+                        device=yolo_config.get("device") if yolo_config else None,
+                        imgsz=int(yolo_config.get("imgsz", 640)) if yolo_config else 640,
+                    )
+                    
+                    seg_results = seg_model.batch_segment_frames(
+                        image_paths,
+                        conf_threshold=float(yolo_config.get("min_confidence", 0.25)) if yolo_config else 0.25,
+                        target_classes=["wall", "hold", "climber", "person"],
+                    )
                     
                     if bool(seg_config.get("export_masks", True)):
                         export_segmentation_masks(seg_results, frame_dir, export_images=True, export_json=True)
@@ -254,6 +296,28 @@ def run_pipeline_stage(
         log("No videos found; nothing to process.")
         return [], [], []
 
+    # Apply BiLSTM frame selector (if production model is configured)
+    production_frame_selector_model = os.getenv("PRODUCTION_FRAME_SELECTOR_MODEL")
+    production_frame_selector_threshold = float(os.getenv("PRODUCTION_FRAME_SELECTOR_THRESHOLD", "0.5"))
+    
+    if production_frame_selector_model and Path(production_frame_selector_model).exists():
+        log(f"BiLSTM frame selector model found: {production_frame_selector_model}")
+        filtered_manifests = []
+        for manifest_path in manifests:
+            filtered_manifest = apply_frame_selector_model(
+                manifest_path,
+                Path(production_frame_selector_model),
+                threshold=production_frame_selector_threshold,
+                log=log,
+            )
+            filtered_manifests.append(filtered_manifest)
+        manifests = filtered_manifests
+    else:
+        if production_frame_selector_model:
+            log(f"Warning: Frame selector model not found at {production_frame_selector_model}, using all frames")
+        else:
+            log("No BiLSTM frame selector model configured, using motion-based frames")
+
     visualization_items: list[dict[str, str]] = []
     pose_samples: list[dict[str, object]] = []
 
@@ -266,10 +330,22 @@ def run_pipeline_stage(
             frame_dir = manifest_path.parent
             image_paths = [p for p in frame_dir.glob("*.jpg")]
             if image_paths:
-                log(f"Extracting holds (model {yolo_config.get('model_name','yolov8n.pt')})")
+                # Check production YOLO model path (configurable via environment variable)
+                production_yolo_model = os.getenv(
+                    "PRODUCTION_YOLO_MODEL",
+                    str(ROOT_DIR / "runs" / "hold_type" / "train" / "weights" / "best.pt")
+                )
+                if Path(production_yolo_model).exists():
+                    yolo_model_name = production_yolo_model
+                    log(f"Using production YOLO model: {production_yolo_model}")
+                else:
+                    yolo_model_name = str(yolo_config.get("model_name") or "yolov8n.pt")
+                    log(f"Production YOLO model not found at {production_yolo_model}, using default: {yolo_model_name}")
+                
+                log(f"Extracting holds (model {yolo_model_name})")
                 clustered = extract_and_cluster_holds(
                     image_paths,
-                    model_name=str(yolo_config.get("model_name") or "yolov8n.pt"),
+                    model_name=yolo_model_name,
                     device=yolo_config.get("device"),
                 )
                 if clustered:
@@ -308,7 +384,7 @@ def run_pipeline_stage(
 
         log("Aggregating segment metrics")
         generate_segment_report(manifest_path)
-        _maybe_upload_frame_dir(job, manifest_path.parent, log)
+        _upload_frame_directory(job, manifest_path.parent, log)
 
         pose_results = manifest_path.parent / "pose_results.json"
         if pose_results.exists() and len(pose_samples) < MAX_POSE_SAMPLES:
@@ -331,9 +407,6 @@ def run_pipeline_stage(
                 pose_samples.append(
                     sample
                 )
-
-        if skip_visuals:
-            continue
 
         if visualize_pose_results is None:
             log("Visualization skipped (mediapipe/cv2 dependencies not available).")
@@ -372,8 +445,6 @@ def execute_job(job: PipelineJob) -> None:
             job=job,
             video_dir=Path(job.video_dir),
             output_dir=Path(job.output_dir),
-            interval=job.interval,
-            skip_visuals=job.skip_visuals,
             yolo_options=job.yolo_options,
             segmentation_options=segmentation_options,
             frame_extraction_options=frame_extraction_options,

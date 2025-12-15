@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hold Labeling - BetaMove</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+
+<body>
+  <header class="topnav">
+    <div class="inner" style="max-width: 1800px;">
+      <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+          alt="BetaMove logo"><span>BetaMove</span></a>
+      <nav>
+        <span style="color: var(--text-muted); font-size: 12px; margin-right: 8px;">Hold Labeling Tool</span>
+        <a href="/" style="color: var(--primary);">← Back to Pipeline</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="labeling-container">
+    <!-- Left Panel: Canvas -->
+    <div class="canvas-panel">
+      <div id="status-message" class="status-message"></div>
+
+      <div class="progress-bar">
+        <div class="progress-text">
+          <span id="progress-text">Loading session...</span>
+        </div>
+        <div class="progress-fill-container">
+          <div id="progress-fill" class="progress-fill" style="width: 0%">0%</div>
+        </div>
+      </div>
+
+      <div class="canvas-container">
+        <canvas id="image-canvas"></canvas>
+      </div>
+
+      <div class="frame-nav">
+        <button id="prev-frame">← Previous</button>
+        <span id="frame-counter">Frame 0 / 0</span>
+        <button id="next-frame">Next →</button>
+      </div>
+
+      <div class="legend">
+        <h4>Keyboard Shortcuts</h4>
+        <div class="legend-items">
+          <span class="legend-item">A - Previous frame</span>
+          <span class="legend-item">D - Next frame</span>
+          <span class="legend-item">Click segment to select</span>
+          <span class="legend-item">1-6 - Quick assign hold type</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Segments -->
+    <div class="segments-panel">
+      <div class="segments-header">
+        <h3>Segments</h3>
+        <span id="segments-count" style="color: #888; font-size: 14px;">0 segments</span>
+      </div>
+
+      <div id="segment-list" class="segment-list">
+        <!-- Segment cards will be inserted here -->
+      </div>
+
+      <div class="action-buttons">
+        <button id="save-labels" class="btn-save">💾 Save Progress</button>
+        <button id="export-dataset" class="btn-export">📦 Export to YOLO</button>
+      </div>
+
+      <div class="action-buttons">
+        <button id="clear-frame" class="btn-clear">🗑️ Clear Frame</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/feedback-widget.js"></script>
+  <script src="/static/job-notifications.js"></script>
+  <script src="/static/labeling.js"></script>
+</body>
+
+</html>

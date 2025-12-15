@@ -30,7 +30,11 @@ class TrainJob:
     finished_at: Optional[datetime] = None
     metrics: Dict[str, object] = field(default_factory=dict)
     model_path: Optional[str] = None
-    model_uri: Optional[str] = None
+    model_uri: Optional[str] = None  # GCS model weights URI
+    metadata_uri: Optional[str] = None  # GCS metadata URI
+    training_data_uri: Optional[str] = None  # GCS training data URI
+    drive_model_id: Optional[str] = None  # Google Drive model ID
+    drive_metadata_id: Optional[str] = None  # Google Drive metadata ID
     error: Optional[str] = None
     _log: List[str] = field(default_factory=list, repr=False)
     _lock: RLock = field(default_factory=RLock, repr=False, compare=False)
@@ -44,13 +48,27 @@ class TrainJob:
         with self._lock:
             self._log.append(message)
 
-    def complete(self, *, metrics: Dict[str, object], model_path: str, model_uri: Optional[str] = None) -> None:
+    def complete(
+        self,
+        *,
+        metrics: Dict[str, object],
+        model_path: str,
+        model_uri: Optional[str] = None,
+        metadata_uri: Optional[str] = None,
+        training_data_uri: Optional[str] = None,
+        drive_model_id: Optional[str] = None,
+        drive_metadata_id: Optional[str] = None,
+    ) -> None:
         with self._lock:
             self.status = TrainStatus.COMPLETED
             self.finished_at = _utcnow()
             self.metrics = metrics
             self.model_path = model_path
             self.model_uri = model_uri
+            self.metadata_uri = metadata_uri
+            self.training_data_uri = training_data_uri
+            self.drive_model_id = drive_model_id
+            self.drive_metadata_id = drive_metadata_id
 
     def fail(self, exc: Exception) -> None:
         with self._lock:
@@ -71,6 +89,10 @@ class TrainJob:
                 "metrics": self.metrics,
                 "model_path": self.model_path,
                 "model_uri": self.model_uri,
+                "metadata_uri": self.metadata_uri,
+                "training_data_uri": self.training_data_uri,
+                "drive_model_id": self.drive_model_id,
+                "drive_metadata_id": self.drive_metadata_id,
                 "error": self.error,
                 "logs": list(self._log),
             }

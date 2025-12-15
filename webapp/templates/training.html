@@ -1,203 +1,654 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="utf-8">
-    <title>Model Training</title>
-    <link rel="stylesheet" href="/static/app.css">
+  <meta charset="utf-8">
+  <title>Model Training - BetaMove</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    /* Tab Styles */
+    .model-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 0;
+      border-bottom: 2px solid #333;
+    }
+
+    .model-tab {
+      padding: 12px 24px;
+      background: #1e1e1e;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      border-radius: 8px 8px 0 0;
+      margin-right: 4px;
+    }
+
+    .model-tab:hover {
+      background: #2a2a2a;
+      color: #fff;
+    }
+
+    .model-tab.active {
+      background: #2d4a7d;
+      color: #fff;
+      border-bottom: 2px solid #60a5fa;
+      margin-bottom: -2px;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 20px 0;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Hyperparameter Section */
+    .hyperparams-section {
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .hyperparams-section h3 {
+      color: #fff;
+      font-size: 14px;
+      margin: 0 0 12px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+
+    .hyperparams-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .hyperparams-grid .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hyperparams-grid label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .hyperparams-grid input,
+    .hyperparams-grid select {
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    .hyperparams-grid input:focus,
+    .hyperparams-grid select:focus {
+      outline: none;
+      border-color: #60a5fa;
+    }
+
+    /* Checkbox Style */
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 20px;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+    }
+
+    .checkbox-group label {
+      margin-bottom: 0 !important;
+    }
+
+    /* Model Type Badge */
+    .model-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+
+    .model-badge.xgboost {
+      background: #22c55e;
+      color: #000;
+    }
+
+    .model-badge.bilstm {
+      background: #8b5cf6;
+      color: #fff;
+    }
+
+    /* Subtitle spacing */
+    .subtitle {
+      margin-bottom: 24px;
+    }
+  </style>
 </head>
+
 <body>
-<header class="topnav">
-  <div class="inner">
-    <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png" alt="BetaMove logo"><span>BetaMove</span></a>
-    <nav>
-      <a href="/">Pipeline</a>
-      <a href="/training" class="active">Training</a>
-      <a href="/testing">Testing</a>
-    </nav>
-  </div>
-</header>
-<main class="container">
+  <header class="topnav">
+    <div class="inner">
+      <a class="brand" href="/"><img class="brand-logo" src="/static/logo.png"
+          alt="BetaMove logo"><span>BetaMove</span></a>
+      <nav>
+        <a href="/">Analysis</a>
+        <a href="/training" class="active">Training</a>
+        <span style="color: #666; margin: 0 12px;">|</span>
+        <a href="/detection">Detection Model Training</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
     <section class="card">
-        <h1 class="title">Model Training</h1>
-        <p class="subtitle">Upload features and start an XGBoost training job.</p>
-        <form id="train-form" class="form">
-            <div class="form-row">
-                <label for="features_file">Upload features (.json)</label>
-                <input type="file" id="features_file" name="file" accept="application/json" required>
-                <p class="hint">Expected format: array of feature rows (JSON).</p>
+      <h1 class="title">Model Training</h1>
+      <p class="subtitle">Train XGBoost for route analysis or BiLSTM for beta prediction.</p>
+
+      <!-- Model Type Tabs -->
+      <div class="model-tabs">
+        <button class="model-tab active" data-tab="xgboost">XGBoost Training</button>
+        <button class="model-tab" data-tab="bilstm">BiLSTM Training</button>
+      </div>
+
+      <!-- XGBoost Tab Content -->
+      <div class="tab-content active" data-tab="xgboost">
+        <form id="xgboost-form" class="form">
+          <input type="hidden" name="model_type" value="xgboost">
+
+          <div class="form-row">
+            <label for="xgb_features_file">Upload features (.json)</label>
+            <input type="file" id="xgb_features_file" name="file" accept="application/json" required>
+            <p class="hint">Feature rows exported from pipeline (pose_features.json).</p>
+          </div>
+
+          <!-- XGBoost Hyperparameters -->
+          <div class="hyperparams-section">
+            <h3>XGBoost Hyperparameters</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group">
+                <label for="xgb_n_estimators">n_estimators</label>
+                <input type="number" id="xgb_n_estimators" name="n_estimators" value="300" min="10" max="2000">
+              </div>
+              <div class="form-group">
+                <label for="xgb_learning_rate">learning_rate</label>
+                <input type="number" id="xgb_learning_rate" name="learning_rate" value="0.05" min="0.001" max="1"
+                  step="0.01">
+              </div>
+              <div class="form-group">
+                <label for="xgb_max_depth">max_depth</label>
+                <input type="number" id="xgb_max_depth" name="max_depth" value="4" min="1" max="20">
+              </div>
+              <div class="form-group">
+                <label for="xgb_subsample">subsample</label>
+                <input type="number" id="xgb_subsample" name="subsample" value="0.8" min="0.1" max="1" step="0.1">
+              </div>
+              <div class="form-group">
+                <label for="xgb_colsample_bytree">colsample_bytree</label>
+                <input type="number" id="xgb_colsample_bytree" name="colsample_bytree" value="0.8" min="0.1" max="1"
+                  step="0.1">
+              </div>
+              <div class="form-group">
+                <label for="xgb_scale_pos_weight">scale_pos_weight</label>
+                <input type="number" id="xgb_scale_pos_weight" name="scale_pos_weight" placeholder="auto" min="0"
+                  step="0.1">
+              </div>
+              <div class="form-group">
+                <label for="xgb_n_jobs">n_jobs</label>
+                <input type="number" id="xgb_n_jobs" name="n_jobs" value="0" min="-1" max="64">
+              </div>
+              <div class="form-group">
+                <label for="xgb_tree_method">tree_method</label>
+                <select id="xgb_tree_method" name="tree_method">
+                  <option value="">auto</option>
+                  <option value="hist">hist</option>
+                  <option value="gpu_hist">gpu_hist</option>
+                  <option value="exact">exact</option>
+                </select>
+              </div>
             </div>
-            <div class="form-row inline">
-                <div>
-                    <label for="task">Task</label>
-                    <select id="task" name="task">
-                        <option value="classification" selected>classification</option>
-                        <option value="regression">regression</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="label_column">Label column</label>
-                    <input type="text" id="label_column" name="label_column" value="detection_score">
-                </div>
+          </div>
+
+          <!-- Training Settings -->
+          <div class="hyperparams-section">
+            <h3>Training Settings</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group">
+                <label for="xgb_early_stopping_rounds">early_stopping_rounds</label>
+                <input type="number" id="xgb_early_stopping_rounds" name="early_stopping_rounds" value="30" min="0"
+                  max="200">
+              </div>
+              <div class="form-group">
+                <label for="xgb_test_size">test_size</label>
+                <input type="number" id="xgb_test_size" name="test_size" value="0.2" min="0.05" max="0.5" step="0.05">
+              </div>
+              <div class="form-group">
+                <label for="xgb_random_state">random_state</label>
+                <input type="number" id="xgb_random_state" name="random_state" value="42" min="0">
+              </div>
+              <div class="form-group">
+                <label for="xgb_eval_metric">eval_metric</label>
+                <select id="xgb_eval_metric" name="eval_metric">
+                  <option value="logloss">logloss</option>
+                  <option value="auc">auc</option>
+                  <option value="rmse">rmse</option>
+                  <option value="mae">mae</option>
+                </select>
+              </div>
             </div>
-            <div class="form-row inline">
-                <div>
-                    <label for="label_threshold">Label threshold</label>
-                    <input type="number" id="label_threshold" name="label_threshold" step="0.05" value="0.6">
-                </div>
-                <div>
-                    <label for="test_size">Test size</label>
-                    <input type="number" id="test_size" name="test_size" step="0.05" value="0.2">
-                </div>
+          </div>
+
+          <!-- Output -->
+          <div class="hyperparams-section">
+            <h3>Output</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="xgb_model_out">Model output path</label>
+                <input type="text" id="xgb_model_out" name="model_out" value="models/xgb_pose.json">
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="xgb_upload_to_gcs" name="upload_to_gcs">
+                <label for="xgb_upload_to_gcs">Upload to cloud storage</label>
+              </div>
             </div>
-            <div class="form-row">
-                <label for="model_out">Model output path</label>
-                <input type="text" id="model_out" name="model_out" value="models/xgb_pose.json">
-            </div>
-            <div class="form-actions">
-                <button id="start" type="submit">Start training</button>
-                <span id="train-status" class="status"></span>
-            </div>
+          </div>
+
+          <div class="form-actions">
+            <button id="xgb-start" type="submit">Start XGBoost Training</button>
+            <span id="xgb-status" class="status"></span>
+          </div>
         </form>
+      </div>
+
+      <!-- BiLSTM Tab Content -->
+      <div class="tab-content" data-tab="bilstm">
+        <form id="bilstm-form" class="form">
+          <input type="hidden" name="model_type" value="bilstm">
+
+          <div class="form-row">
+            <label for="bilstm_features_file">Upload features (.json)</label>
+            <input type="file" id="bilstm_features_file" name="file" accept="application/json" required>
+            <p class="hint">Feature rows with pose data and holds information for beta prediction.</p>
+          </div>
+
+          <!-- BiLSTM Model Architecture -->
+          <div class="hyperparams-section">
+            <h3>Model Architecture</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group">
+                <label for="bilstm_hidden_dim">hidden_dim</label>
+                <input type="number" id="bilstm_hidden_dim" name="hidden_dim" value="128" min="32" max="512" step="32">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_num_layers">num_layers</label>
+                <input type="number" id="bilstm_num_layers" name="num_layers" value="2" min="1" max="6">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_dropout">dropout</label>
+                <input type="number" id="bilstm_dropout" name="dropout" value="0.3" min="0" max="0.8" step="0.1">
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="bilstm_use_attention" name="use_attention" checked>
+                <label for="bilstm_use_attention">Use attention pooling</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Training Hyperparameters -->
+          <div class="hyperparams-section">
+            <h3>Training Hyperparameters</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group">
+                <label for="bilstm_epochs">epochs</label>
+                <input type="number" id="bilstm_epochs" name="epochs" value="100" min="1" max="1000">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_batch_size">batch_size</label>
+                <input type="number" id="bilstm_batch_size" name="batch_size" value="32" min="1" max="256">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_learning_rate">learning_rate</label>
+                <input type="number" id="bilstm_learning_rate" name="learning_rate" value="0.001" min="0.00001"
+                  max="0.1" step="0.0001">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_weight_decay">weight_decay</label>
+                <input type="number" id="bilstm_weight_decay" name="weight_decay" value="0.0001" min="0" max="0.1"
+                  step="0.0001">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_patience">patience (early stopping)</label>
+                <input type="number" id="bilstm_patience" name="patience" value="10" min="1" max="50">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_lr_patience">lr_patience</label>
+                <input type="number" id="bilstm_lr_patience" name="lr_patience" value="5" min="1" max="20">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_lr_factor">lr_factor</label>
+                <input type="number" id="bilstm_lr_factor" name="lr_factor" value="0.5" min="0.1" max="0.9" step="0.1">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_device">device</label>
+                <select id="bilstm_device" name="device">
+                  <option value="cuda">cuda</option>
+                  <option value="cpu">cpu</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Processing -->
+          <div class="hyperparams-section">
+            <h3>Data Processing</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group">
+                <label for="bilstm_window_size">window_size</label>
+                <input type="number" id="bilstm_window_size" name="window_size" value="32" min="8" max="128">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_stride">stride</label>
+                <input type="number" id="bilstm_stride" name="stride" value="1" min="1" max="32">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_train_split">train_split</label>
+                <input type="number" id="bilstm_train_split" name="train_split" value="0.7" min="0.5" max="0.9"
+                  step="0.05">
+              </div>
+              <div class="form-group">
+                <label for="bilstm_val_split">val_split</label>
+                <input type="number" id="bilstm_val_split" name="val_split" value="0.2" min="0.05" max="0.3"
+                  step="0.05">
+              </div>
+            </div>
+          </div>
+
+          <!-- Output -->
+          <div class="hyperparams-section">
+            <h3>Output</h3>
+            <div class="hyperparams-grid">
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="bilstm_checkpoint_dir">Checkpoint directory</label>
+                <input type="text" id="bilstm_checkpoint_dir" name="checkpoint_dir" value="models/checkpoints">
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="bilstm_upload_to_gcs" name="upload_to_gcs">
+                <label for="bilstm_upload_to_gcs">Upload to cloud storage</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button id="bilstm-start" type="submit">Start BiLSTM Training</button>
+            <span id="bilstm-status" class="status"></span>
+          </div>
+        </form>
+      </div>
     </section>
 
     <section class="card">
-        <div class="card-header">
-            <h2>Training Jobs</h2>
-            <button id="refresh" type="button">Refresh</button>
-        </div>
-        <div class="table-wrapper">
-            <table id="jobs-table">
-                <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Model</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for job in jobs %}
-                <tr data-job-id="{{ job.id }}">
-                    <td>{{ job.id }}</td>
-                    <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
-                    <td>{{ job.created_at }}</td>
-                    <td>{{ job.model_path or "—" }}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <p class="hint">Select a job to view metrics and logs.</p>
+      <div class="card-header">
+        <h2>Training Jobs</h2>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="jobs-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Model</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Output</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in jobs %}
+            <tr data-job-id="{{ job.id }}">
+              <td>{{ job.id[:8] }}...</td>
+              <td><span class="model-badge {{ job.params.model_type or 'xgboost' }}">{{ job.params.model_type or
+                  'xgboost' }}</span></td>
+              <td class="status-cell"><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+              <td>{{ job.created_at }}</td>
+              <td>{{ job.model_path or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">Select a job to view metrics and logs.</p>
     </section>
 
     <section class="card">
-        <div class="card-header">
-            <h2>Result</h2>
-            <span id="result-title">No job selected</span>
-        </div>
-        <pre id="result-output" class="log-output"></pre>
+      <div class="card-header">
+        <h2>Training Result</h2>
+        <span id="result-title">No job selected</span>
+      </div>
+      <pre id="result-output" class="log-output"></pre>
     </section>
-</main>
+  </main>
 
-<script>
-const form = document.getElementById('train-form');
-const statusEl = document.getElementById('train-status');
-const jobsTableBody = document.querySelector('#jobs-table tbody');
-const refreshBtn = document.getElementById('refresh');
-const resultTitle = document.getElementById('result-title');
-const resultOutput = document.getElementById('result-output');
-const featuresInput = document.getElementById('features_file');
-let selectedJobId = null;
+  <script src="/static/feedback-widget.js"></script>
+  <script src="/static/job-notifications.js"></script>
+  <script>
+    // Tab switching
+    document.querySelectorAll('.model-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+        document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelector(`.tab-content[data-tab="${tabName}"]`).classList.add('active');
+      });
+    });
 
-async function uploadFeatures() {
-  if (!featuresInput.files || featuresInput.files.length === 0) {
-    throw new Error('Please select a features JSON file.');
-  }
-  const formData = new FormData();
-  formData.append('file', featuresInput.files[0]);
-  const resp = await fetch('/api/train/upload', { method: 'POST', body: formData });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || 'Upload failed');
-  }
-  return resp.json();
-}
+    // Common elements
+    const jobsTableBody = document.querySelector('#jobs-table tbody');
+    const refreshBtn = document.getElementById('refresh');
+    const resultTitle = document.getElementById('result-title');
+    const resultOutput = document.getElementById('result-output');
+    let selectedJobId = null;
 
-async function startTraining(params) {
-  const resp = await fetch('/api/train', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || 'Training start failed');
-  }
-  return resp.json();
-}
+    // Upload features function
+    async function uploadFeatures(fileInput) {
+      if (!fileInput.files || fileInput.files.length === 0) {
+        throw new Error('Please select a features JSON file.');
+      }
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      const resp = await fetch('/api/train/upload', { method: 'POST', body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Upload failed');
+      }
+      return resp.json();
+    }
 
-async function fetchJobs() {
-  const resp = await fetch('/api/train/jobs');
-  if (!resp.ok) throw new Error('Failed to fetch jobs');
-  return resp.json();
-}
+    // Start training function
+    async function startTraining(params) {
+      const resp = await fetch('/api/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Training start failed');
+      }
+      return resp.json();
+    }
 
-function renderJobs(jobs) {
-  jobsTableBody.innerHTML = '';
-  jobs.forEach(job => {
-    const tr = document.createElement('tr');
-    tr.dataset.jobId = job.id;
-    tr.innerHTML = `
-      <td>${job.id}</td>
-      <td class="status-cell"><span class="badge badge-${job.status}">${job.status}</span></td>
-      <td>${job.created_at}</td>
-      <td>${job.model_path || '—'}</td>
-    `;
-    if (selectedJobId === job.id) tr.classList.add('selected');
-    tr.addEventListener('click', () => { selectedJobId = job.id; loadJob(job.id); renderJobs(jobs); });
-    jobsTableBody.appendChild(tr);
-  });
-}
+    // Fetch jobs
+    async function fetchJobs() {
+      const resp = await fetch('/api/train/jobs');
+      if (!resp.ok) throw new Error('Failed to fetch jobs');
+      return resp.json();
+    }
 
-async function refresh() {
-  try {
-    const jobs = await fetchJobs();
-    renderJobs(jobs);
-    if (selectedJobId) await loadJob(selectedJobId);
-  } catch (err) { console.error(err); }
-}
+    // Render jobs table
+    function renderJobs(jobs) {
+      jobsTableBody.innerHTML = '';
+      jobs.forEach(job => {
+        const tr = document.createElement('tr');
+        tr.dataset.jobId = job.id;
+        const modelType = job.params?.model_type || 'xgboost';
+        tr.innerHTML = `
+          <td title="${job.id}">${job.id.substring(0, 8)}...</td>
+          <td><span class="model-badge ${modelType}">${modelType}</span></td>
+          <td class="status-cell"><span class="badge badge-${job.status}">${job.status}</span></td>
+          <td>${new Date(job.created_at).toLocaleString()}</td>
+          <td>${job.model_path || '—'}</td>
+        `;
+        if (selectedJobId === job.id) tr.classList.add('selected');
+        tr.addEventListener('click', () => {
+          selectedJobId = job.id;
+          loadJob(job.id);
+          renderJobs(jobs);
+        });
+        jobsTableBody.appendChild(tr);
+      });
+    }
 
-async function loadJob(id) {
-  const resp = await fetch(`/api/train/jobs/${id}`);
-  if (!resp.ok) { resultTitle.textContent = 'Unable to load job'; resultOutput.textContent = ''; return; }
-  const data = await resp.json();
-  resultTitle.textContent = `Job ${data.id} (${data.status})`;
-  const pretty = JSON.stringify({ metrics: data.metrics, model_path: data.model_path, error: data.error, logs: data.logs }, null, 2);
-  resultOutput.textContent = pretty;
-}
+    // Refresh jobs
+    async function refresh() {
+      try {
+        const jobs = await fetchJobs();
+        renderJobs(jobs);
+        if (selectedJobId) await loadJob(selectedJobId);
+      } catch (err) {
+        console.error(err);
+      }
+    }
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  statusEl.textContent = 'Uploading features…';
-  try {
-    const upload = await uploadFeatures();
-    const params = {
-      features_path: upload.features_path,
-      task: document.getElementById('task').value,
-      label_column: document.getElementById('label_column').value || 'detection_score',
-      label_threshold: parseFloat(document.getElementById('label_threshold').value || '0.6'),
-      test_size: parseFloat(document.getElementById('test_size').value || '0.2'),
-      model_out: document.getElementById('model_out').value || 'models/xgb_pose.json',
-    };
-    statusEl.textContent = 'Starting training…';
-    const job = await startTraining(params);
-    selectedJobId = job.id;
-    statusEl.textContent = `Started training ${job.id}`;
-    await refresh();
-  } catch (err) {
-    statusEl.textContent = err.message;
-  }
-});
+    // Load job details
+    async function loadJob(id) {
+      const resp = await fetch(`/api/train/jobs/${id}`);
+      if (!resp.ok) {
+        resultTitle.textContent = 'Unable to load job';
+        resultOutput.textContent = '';
+        return;
+      }
+      const data = await resp.json();
+      const modelType = data.params?.model_type || 'xgboost';
+      resultTitle.textContent = `Job ${data.id.substring(0, 8)}... (${modelType} - ${data.status})`;
+      const pretty = JSON.stringify({
+        model_type: modelType,
+        hyperparameters: data.params,
+        metrics: data.metrics,
+        model_path: data.model_path,
+        error: data.error,
+        logs: data.logs
+      }, null, 2);
+      resultOutput.textContent = pretty;
+    }
 
-refreshBtn.addEventListener('click', refresh);
-setInterval(refresh, 5000);
-refresh();
-</script>
+    // XGBoost form submission
+    document.getElementById('xgboost-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('xgb-status');
+      const fileInput = document.getElementById('xgb_features_file');
+
+      statusEl.textContent = 'Uploading features…';
+      try {
+        const upload = await uploadFeatures(fileInput);
+        const params = {
+          features_path: upload.features_path,
+          model_type: 'xgboost',
+          // XGBoost hyperparameters
+          n_estimators: parseInt(document.getElementById('xgb_n_estimators').value) || 300,
+          learning_rate: parseFloat(document.getElementById('xgb_learning_rate').value) || 0.05,
+          max_depth: parseInt(document.getElementById('xgb_max_depth').value) || 4,
+          subsample: parseFloat(document.getElementById('xgb_subsample').value) || 0.8,
+          colsample_bytree: parseFloat(document.getElementById('xgb_colsample_bytree').value) || 0.8,
+          scale_pos_weight: document.getElementById('xgb_scale_pos_weight').value ? parseFloat(document.getElementById('xgb_scale_pos_weight').value) : null,
+          n_jobs: parseInt(document.getElementById('xgb_n_jobs').value) || 0,
+          tree_method: document.getElementById('xgb_tree_method').value || null,
+          // Training settings
+          early_stopping_rounds: parseInt(document.getElementById('xgb_early_stopping_rounds').value) || 30,
+          test_size: parseFloat(document.getElementById('xgb_test_size').value) || 0.2,
+          random_state: parseInt(document.getElementById('xgb_random_state').value) || 42,
+          eval_metric: document.getElementById('xgb_eval_metric').value || 'logloss',
+          // Output
+          model_out: document.getElementById('xgb_model_out').value || 'models/xgb_pose.json',
+          upload_to_gcs: document.getElementById('xgb_upload_to_gcs').checked,
+        };
+
+        statusEl.textContent = 'Starting XGBoost training…';
+        const job = await startTraining(params);
+        selectedJobId = job.id;
+        statusEl.textContent = `Started training ${job.id.substring(0, 8)}...`;
+        await refresh();
+      } catch (err) {
+        statusEl.textContent = err.message;
+      }
+    });
+
+    // BiLSTM form submission
+    document.getElementById('bilstm-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('bilstm-status');
+      const fileInput = document.getElementById('bilstm_features_file');
+
+      statusEl.textContent = 'Uploading features…';
+      try {
+        const upload = await uploadFeatures(fileInput);
+        const params = {
+          features_path: upload.features_path,
+          model_type: 'bilstm',
+          // Model architecture
+          hidden_dim: parseInt(document.getElementById('bilstm_hidden_dim').value) || 128,
+          num_layers: parseInt(document.getElementById('bilstm_num_layers').value) || 2,
+          dropout: parseFloat(document.getElementById('bilstm_dropout').value) || 0.3,
+          use_attention: document.getElementById('bilstm_use_attention').checked,
+          // Training hyperparameters
+          epochs: parseInt(document.getElementById('bilstm_epochs').value) || 100,
+          batch_size: parseInt(document.getElementById('bilstm_batch_size').value) || 32,
+          learning_rate: parseFloat(document.getElementById('bilstm_learning_rate').value) || 0.001,
+          weight_decay: parseFloat(document.getElementById('bilstm_weight_decay').value) || 0.0001,
+          patience: parseInt(document.getElementById('bilstm_patience').value) || 10,
+          lr_patience: parseInt(document.getElementById('bilstm_lr_patience').value) || 5,
+          lr_factor: parseFloat(document.getElementById('bilstm_lr_factor').value) || 0.5,
+          device: document.getElementById('bilstm_device').value || 'cuda',
+          // Data processing
+          window_size: parseInt(document.getElementById('bilstm_window_size').value) || 32,
+          stride: parseInt(document.getElementById('bilstm_stride').value) || 1,
+          train_split: parseFloat(document.getElementById('bilstm_train_split').value) || 0.7,
+          val_split: parseFloat(document.getElementById('bilstm_val_split').value) || 0.2,
+          // Output
+          checkpoint_dir: document.getElementById('bilstm_checkpoint_dir').value || 'models/checkpoints',
+          upload_to_gcs: document.getElementById('bilstm_upload_to_gcs').checked,
+        };
+
+        statusEl.textContent = 'Starting BiLSTM training…';
+        const job = await startTraining(params);
+        selectedJobId = job.id;
+        statusEl.textContent = `Started training ${job.id.substring(0, 8)}...`;
+        await refresh();
+      } catch (err) {
+        statusEl.textContent = err.message;
+      }
+    });
+
+    // Event listeners
+    refreshBtn.addEventListener('click', refresh);
+    setInterval(refresh, 5000);
+    refresh();
+  </script>
 </body>
+
 </html>
