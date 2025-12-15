@@ -674,8 +674,26 @@
                 return;
             }
 
+            // Normalize path: remove leading slash if present, ensure it starts with repo mount
+            let normalizedPath = videoPath;
+            // Remove leading slash if it's an absolute path indicator
+            if (normalizedPath.startsWith('/')) {
+                normalizedPath = normalizedPath.substring(1);
+            }
+            // Remove ROOT_DIR prefix if present (absolute path)
+            if (normalizedPath.includes('/Users/') || normalizedPath.includes('C:\\')) {
+                // Try to extract relative path - assume it's under data/ or similar
+                const match = normalizedPath.match(/(data\/[^\/]+.*)/);
+                if (match) {
+                    normalizedPath = match[1];
+                } else {
+                    // If we can't extract, just use as-is and let server handle it
+                    console.warn('Could not normalize video path:', videoPath);
+                }
+            }
+
             // Set video source
-            analysisVideo.src = `/repo/${videoPath}`;
+            analysisVideo.src = `/repo/${normalizedPath}`;
             analysisVideo.style.display = 'block';
             if (videoPlaceholder) videoPlaceholder.style.display = 'none';
 
@@ -939,8 +957,11 @@
                 updateProgressSteps(data.logs, data.status);
 
                 // Setup video player if job has video
-                if (data.video_dir) {
-                    // Find the video file in the video_dir
+                if (data.video_path) {
+                    // Use video_path (relative path from server) if available
+                    setupVideoPlayer(data.video_path);
+                } else if (data.video_dir) {
+                    // Fallback: try to find video in video_dir (legacy support)
                     const videoPath = data.video_dir;
                     setupVideoPlayer(videoPath);
                 }
