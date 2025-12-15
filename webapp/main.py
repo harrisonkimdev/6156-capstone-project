@@ -168,6 +168,12 @@ async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("index.html", {"request": request, "jobs": jobs})
 
 
+@app.get("/recommendations", response_class=HTMLResponse)
+async def recommendations_page(request: Request) -> HTMLResponse:
+    """Efficiency & Recommendations demo page."""
+    return templates.TemplateResponse("recommendations.html", {"request": request})
+
+
 @app.get("/training", response_class=HTMLResponse)
 async def training_page(request: Request) -> HTMLResponse:
     jobs = [job.as_dict() for job in train_manager.list()]
@@ -197,6 +203,28 @@ async def get_job(job_id: str) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="Job not found")
     payload = job.as_dict()
     payload["logs"] = job.log_lines()
+    
+    # Find video file in video_dir and convert to relative path for /repo mount
+    if payload.get("video_dir"):
+        video_dir_path = Path(payload["video_dir"])
+        if video_dir_path.exists():
+            # Find video file in directory
+            from pose_ai.data.video_loader import iter_video_files
+            try:
+                video_files = list(iter_video_files(video_dir_path, recursive=False))
+                if video_files:
+                    video_file = video_files[0]
+                    # Convert to relative path from ROOT_DIR
+                    try:
+                        rel_path = video_file.relative_to(ROOT_DIR)
+                        payload["video_path"] = str(rel_path)
+                    except ValueError:
+                        # If not under ROOT_DIR, use absolute path as fallback
+                        payload["video_path"] = str(video_file)
+            except Exception:
+                # If video file not found, leave video_path unset
+                pass
+    
     return payload
 
 
@@ -1565,12 +1593,18 @@ async def job_analysis(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     if not job.manifests:
-        raise HTTPException(status_code=400, detail="Job has no manifests yet")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job has no manifests yet. Status: {job.status.value}. Job may still be processing."
+        )
     # Use first manifest directory for analysis artifacts.
     frame_dir = Path(job.manifests[0]).parent
     features_path = frame_dir / "pose_features.json"
     if not features_path.exists():
-        raise HTTPException(status_code=400, detail="Features not found for job")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"pose_features.json not found in {frame_dir}. Features may not have been extracted yet."
+        )
     import json
     feature_rows = json.loads(features_path.read_text(encoding="utf-8"))
     holds_path = frame_dir / "holds.json"
@@ -1720,11 +1754,15 @@ def get_ml_predictions(job_id: str):
             detail="ML model not available. Train model first using scripts/train_bilstm.py"
         )
     
-    # Load features
+    # Load features from manifest directory (same as analysis endpoint)
+    if not job.manifests:
+        raise HTTPException(status_code=400, detail="Job has no manifests yet")
+    
     import json
-    features_path = ROOT_DIR / "data" / "uploads" / job_id / "features.json"
+    frame_dir = Path(job.manifests[0]).parent
+    features_path = frame_dir / "pose_features.json"
     if not features_path.exists():
-        raise HTTPException(status_code=404, detail="Features not found")
+        raise HTTPException(status_code=404, detail="pose_features.json not found")
     
     try:
         # Initialize inference engine (auto-detects BiLSTM or Transformer)
