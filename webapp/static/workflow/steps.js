@@ -76,16 +76,19 @@ async function startAnalyzing() {
     // Automatically navigate to Step 2
     navigateToStep('step-2');
 
-    // Show hold labeling UI (frame selection modal disabled temporarily)
-    if (typeof showHoldLabelingUI === 'function') {
-      // Trim info disabled temporarily - always use first frame
-      // const trimInfo = {
-      //   hasTrimmed: data.has_trimmed || false,
-      //   originalFirstFramePath: data.original_first_frame_path || null,
-      //   trimmedFirstFramePath: data.trimmed_first_frame_path || null,
-      // };
-      showHoldLabelingUI(uploadId, videoName, data.frame_count, null);
-    }
+    // Show hold labeling UI after a short delay to ensure Step 2 is visible
+    // (frame selection modal disabled temporarily)
+    setTimeout(() => {
+      if (typeof showHoldLabelingUI === 'function') {
+        // Trim info disabled temporarily - always use first frame
+        // const trimInfo = {
+        //   hasTrimmed: data.has_trimmed || false,
+        //   originalFirstFramePath: data.original_first_frame_path || null,
+        //   trimmedFirstFramePath: data.trimmed_first_frame_path || null,
+        // };
+        showHoldLabelingUI(uploadId, videoName, data.frame_count, null);
+      }
+    }, 100);
 
   } catch (error) {
     console.error('Frame extraction failed:', error);

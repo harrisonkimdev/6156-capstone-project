@@ -210,10 +210,11 @@ async function loadFirstFrameForLabeling(uploadId, videoName) {
   try {
     const response = await fetch(`/api/workflow/frames/${uploadId}/${videoName}`);
     if (!response.ok) {
-      throw new Error('Failed to load frames');
+      throw new Error(`Failed to load frames: ${response.statusText}`);
     }
 
     const data = await response.json();
+
     if (data.frames && data.frames.length > 0) {
       // Get first frame
       const firstFrame = data.frames[0];
@@ -223,6 +224,8 @@ async function loadFirstFrameForLabeling(uploadId, videoName) {
 
       // Automatically start SAM segmentation
       await startSamSegmentation(uploadId, videoName, firstFrame.filename);
+    } else {
+      throw new Error('No frames found in response');
     }
   } catch (error) {
     console.error('Failed to load frame for labeling:', error);
@@ -299,7 +302,8 @@ async function startSamSegmentation(uploadId, videoName, frameFilename) {
   const segmentsList = document.getElementById('segments-list');
 
   if (!loadingDiv || !segmentsList) {
-    console.error('SAM UI elements not found');
+    console.error('SAM UI elements not found', { loadingDiv, segmentsList });
+    showStatus('step-2', 'Error: SAM UI elements not found', 'error');
     return;
   }
 
@@ -369,7 +373,13 @@ async function startSamSegmentation(uploadId, videoName, frameFilename) {
     eventSource.onerror = (error) => {
       console.error('SSE error:', error);
       eventSource.close();
-      throw new Error('Connection error during segmentation');
+      if (loadingDiv) {
+        loadingDiv.style.display = 'none';
+      }
+      if (segmentsList) {
+        segmentsList.innerHTML = `<p style="color: #f85149; text-align: center; margin: 0;">Error: Connection error during segmentation</p>`;
+      }
+      showStatus('step-2', 'Error: Connection error during segmentation', 'error');
     };
 
   } catch (error) {
